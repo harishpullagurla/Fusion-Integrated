@@ -54,13 +54,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { data } = await http.patch<Session>("/me", { active_role: role });
       qc.setQueryData(["session"], data);
-      // Screens are scoped by the role that drew them, so start again at the top.
-      navigate("/");
+      await qc.invalidateQueries({ queryKey: ["session"] });
     } catch {
       /* the session query is unchanged, so the select snaps back */
       qc.invalidateQueries({ queryKey: ["session"] });
     }
-  }, [navigate, qc]);
+  }, [qc]);
 
   const logout = useCallback(async () => {
     try {

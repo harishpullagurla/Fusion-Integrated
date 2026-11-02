@@ -28,13 +28,15 @@ class IamSessionAuthentication(BaseAuthentication):
 
         if settings.DEBUG and token and token.startswith("dev-token-"):
             user_str = token.replace("dev-token-", "")
+            from fusion_auth.dev_state import DEV_ACTIVE_ROLES
+            active_role = DEV_ACTIVE_ROLES.get(str(token), "faculty")
             principal = Principal(
                 user_id=1,
                 username=user_str,
                 display_name=f"Dr. {user_str.capitalize()}",
                 kind="faculty",
-                active_role="faculty",
-                roles=("faculty", "hod"),
+                active_role=active_role,
+                roles=("faculty", "hod", "dean", "director", "admin"),
                 permissions=frozenset(["elm:apply", "elm:view", "elm:approve"]),
                 modules=("elm", "placement_cell"),
                 navigation=(

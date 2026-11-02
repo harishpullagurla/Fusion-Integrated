@@ -109,8 +109,11 @@ class MeView(APIView):
         """Switch which designation the sidebar and screens present them as."""
         role = (request.data.get("active_role") or "").strip()
         if request.auth and str(request.auth).startswith("dev-token-"):
+            from fusion_auth.dev_state import DEV_ACTIVE_ROLES
+            import dataclasses
+            DEV_ACTIVE_ROLES[str(request.auth)] = role
             if hasattr(request, "principal"):
-                request.principal.active_role = role
+                request.principal = dataclasses.replace(request.principal, active_role=role)
             return self.get(request)
 
         try:
@@ -119,7 +122,8 @@ class MeView(APIView):
             raise DomainError(str(exc), code="unknown_role") from exc
         except IamUnavailable as exc:
             if hasattr(request, "principal"):
-                request.principal.active_role = role
+                import dataclasses
+                request.principal = dataclasses.replace(request.principal, active_role=role)
                 return self.get(request)
             return Response(
                 {"error": {"code": "iam_unavailable",
