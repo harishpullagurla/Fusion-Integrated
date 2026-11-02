@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from "react";
-import type { LeaveRequest, LeaveBalance } from "./types";
+import type { LeaveRequest, LeaveBalance, HolidayCalendar } from "./types";
 
 const LeaveDashboard: React.FC = () => {
   const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
+  const [holidays, setHolidays] = useState<HolidayCalendar[]>([]);
   const [substituteRequests, setSubstituteRequests] = useState<LeaveRequest[]>([]);
   const [showApplyForm, setShowApplyForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
 
   const [applyFormValues, setApplyFormValues] = useState({
     leave_type: "CL",
@@ -18,15 +20,16 @@ const LeaveDashboard: React.FC = () => {
     purpose: "",
     station_leave: false,
     station_leave_address: "",
-    substitute_id: "",
+    substitute: "",
   });
 
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const [resBalances, resRequests] = await Promise.all([
+      const [resBalances, resRequests, resHolidays] = await Promise.all([
         fetch("/api/v1/elm/balances/"),
         fetch("/api/v1/elm/requests/"),
+        fetch("/api/v1/elm/holidays/?year=" + new Date().getFullYear()),
       ]);
       if (resBalances.ok) setLeaveBalances(await resBalances.json());
       if (resRequests.ok) {
@@ -34,6 +37,7 @@ const LeaveDashboard: React.FC = () => {
         setLeaveRequests(data);
         setSubstituteRequests(data.filter((r) => r.substitute_status === "pending"));
       }
+      if (resHolidays.ok) setHolidays(await resHolidays.json());
     } catch (err) {
       console.error("Failed to load leave data:", err);
     } finally {
@@ -58,16 +62,22 @@ const LeaveDashboard: React.FC = () => {
   const handleApplyFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
+    setSuccessMsg("");
     try {
+      const payload: any = { ...applyFormValues };
+      if (!payload.substitute) delete payload.substitute;
+      if (!payload.half_day) delete payload.half_day_period;
+
       const res = await fetch("/api/v1/elm/requests/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(applyFormValues),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.detail || "Failed to submit leave application");
+        throw new Error(err.error || err.detail || JSON.stringify(err));
       }
+      setSuccessMsg("Leave application submitted successfully.");
       setShowApplyForm(false);
       await fetchDashboardData();
     } catch (err: any) {
@@ -77,21 +87,47 @@ const LeaveDashboard: React.FC = () => {
 
   const handleWithdrawLeaveRequest = async (requestId: number) => {
     try {
-      await fetch(`/api/v1/elm/requests/${requestId}/withdraw/`, { method: "POST" });
-      await fetchDashboardData();
+      const res = await fetch(`/api/v1/elm/requests/${requestId}/withdraw/`, { method: "POST" });
+      if (res.ok) {
+        setSuccessMsg("Leave request withdrawn.");
+        await fetchDashboardData();
+      }
     } catch (err) {
       console.error("Failed to withdraw:", err);
     }
   };
 
-  const handleSubstituteResponse = async (requestId: number, decision: "accepted" | "declined") => {
+  const handleCancelApprovedLeave = async (requestId: number) => {
+    if (!window.confirm("Are you sure you want to cancel this approved leave? Quota will be refunded.")) return;
     try {
-      await fetch(`/api/v1/elm/requests/${requestId}/substitute-response/`, {
+      const res = await fetch(`/api/v1/elm/requests/${requestId}/cancel/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comments: "Cancelled by employee" }),
+      });
+      if (res.ok) {
+        setSuccessMsg("Approved leave cancelled and balance refunded.");
+        await fetchDashboardData();
+      } else {
+        const err = await res.json();
+        setErrorMsg(err.error || "Failed to cancel leave.");
+      }
+    } catch (err) {
+      console.error("Failed to cancel leave:", err);
+    }
+  };
+
+  const handleSubstituteResponse = async (requestId: number, decision: "accept" | "decline") => {
+    try {
+      const res = await fetch(`/api/v1/elm/requests/${requestId}/substitute-response/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decision }),
       });
-      await fetchDashboardData();
+      if (res.ok) {
+        setSuccessMsg(`Substitute request ${decision}ed.`);
+        await fetchDashboardData();
+      }
     } catch (err) {
       console.error("Failed to respond to substitute request:", err);
     }
@@ -103,10 +139,16 @@ const LeaveDashboard: React.FC = () => {
       <div className="flex justify-between items-center border-b pb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Employee Leave Management (ELM)</h1>
-          <p className="text-sm text-gray-500">Apply for leaves, track approvals, and manage substitute requests.</p>
+          <p className="text-sm text-gray-500">
+            Institutional Leave Portal &mdash; Casual, Earned, Vacation, and Restricted Holiday management.
+          </p>
         </div>
         <button
-          onClick={() => setShowApplyForm(!showApplyForm)}
+          onClick={() => {
+            setShowApplyForm(!showApplyForm);
+            setErrorMsg("");
+            setSuccessMsg("");
+          }}
           className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
         >
           {showApplyForm ? "Cancel" : "+ Apply for Leave"}
@@ -117,6 +159,9 @@ const LeaveDashboard: React.FC = () => {
 
       {errorMsg && (
         <div className="p-4 bg-red-50 text-red-700 rounded border border-red-200">{errorMsg}</div>
+      )}
+      {successMsg && (
+        <div className="p-4 bg-green-50 text-green-700 rounded border border-green-200">{successMsg}</div>
       )}
 
       {/* Leave Balances Grid */}
@@ -154,13 +199,13 @@ const LeaveDashboard: React.FC = () => {
                 </div>
                 <div className="space-x-2">
                   <button
-                    onClick={() => handleSubstituteResponse(req.id, "accepted")}
+                    onClick={() => handleSubstituteResponse(req.id, "accept")}
                     className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700"
                   >
                     Accept
                   </button>
                   <button
-                    onClick={() => handleSubstituteResponse(req.id, "declined")}
+                    onClick={() => handleSubstituteResponse(req.id, "decline")}
                     className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
                   >
                     Decline
@@ -186,8 +231,8 @@ const LeaveDashboard: React.FC = () => {
                   onChange={handleApplyFormChange}
                   className="w-full border p-2 rounded"
                 >
-                  <option value="CL">Casual Leave (CL)</option>
-                  <option value="RH">Restricted Holiday (RH)</option>
+                  <option value="CL">Casual Leave (CL &le; 8 days)</option>
+                  <option value="RH">Restricted Holiday (RH 1 day)</option>
                   <option value="SCL">Special Casual Leave (SCL)</option>
                   <option value="EL">Earned Leave (EL)</option>
                   <option value="VL">Vacation Leave (VL)</option>
@@ -242,7 +287,32 @@ const LeaveDashboard: React.FC = () => {
                   </select>
                 </div>
               )}
+
+              <label className="flex items-center space-x-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="station_leave"
+                  checked={applyFormValues.station_leave}
+                  onChange={handleApplyFormChange}
+                />
+                <span>Station Leave Permission</span>
+              </label>
             </div>
+
+            {applyFormValues.station_leave && (
+              <div>
+                <label className="block text-xs font-semibold mb-1">Station Leave Destination & Contact Address *</label>
+                <input
+                  type="text"
+                  name="station_leave_address"
+                  value={applyFormValues.station_leave_address}
+                  onChange={handleApplyFormChange}
+                  required={applyFormValues.station_leave}
+                  placeholder="Address and contact telephone while outside station"
+                  className="w-full border p-2 rounded text-sm"
+                />
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-semibold mb-1">Purpose / Reason</label>
@@ -253,7 +323,7 @@ const LeaveDashboard: React.FC = () => {
                 required
                 rows={2}
                 className="w-full border p-2 rounded"
-                placeholder="Reason for requesting leave..."
+                placeholder="Institutional purpose or personal reason for requesting leave..."
               />
             </div>
 
@@ -302,7 +372,9 @@ const LeaveDashboard: React.FC = () => {
                 leaveRequests.map((req) => (
                   <tr key={req.id}>
                     <td className="px-4 py-3 font-mono font-medium">#{req.id}</td>
-                    <td className="px-4 py-3 font-semibold text-gray-700">{typeof req.leave_type === "object" ? req.leave_type.code : req.leave_type}</td>
+                    <td className="px-4 py-3 font-semibold text-gray-700">
+                      {typeof req.leave_type === "object" ? req.leave_type.code : req.leave_type}
+                    </td>
                     <td className="px-4 py-3 text-gray-600">
                       {String(req.start_date)} {req.half_day ? `(${req.half_day_period})` : `to ${String(req.end_date)}`}
                     </td>
@@ -310,20 +382,30 @@ const LeaveDashboard: React.FC = () => {
                     <td className="px-4 py-3">
                       <span className={`px-2 py-1 text-xs rounded font-semibold ${
                         req.status === "approved" ? "bg-green-100 text-green-700" :
+                        req.status === "completed" ? "bg-emerald-100 text-emerald-800" :
                         req.status === "rejected" ? "bg-red-100 text-red-700" :
+                        req.status === "cancelled" ? "bg-purple-100 text-purple-700" :
                         req.status === "withdrawn" ? "bg-gray-100 text-gray-600" :
                         "bg-yellow-100 text-yellow-800"
                       }`}>
                         {req.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-center">
-                      {!["approved", "rejected", "withdrawn", "cancelled"].includes(req.status) && (
+                    <td className="px-4 py-3 text-center space-x-2">
+                      {!["approved", "rejected", "withdrawn", "cancelled", "completed"].includes(req.status) && (
                         <button
                           onClick={() => handleWithdrawLeaveRequest(req.id)}
                           className="text-xs text-red-600 hover:underline"
                         >
                           Withdraw
+                        </button>
+                      )}
+                      {req.status === "approved" && (
+                        <button
+                          onClick={() => handleCancelApprovedLeave(req.id)}
+                          className="text-xs text-purple-600 hover:underline"
+                        >
+                          Cancel
                         </button>
                       )}
                     </td>
@@ -334,6 +416,23 @@ const LeaveDashboard: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Academic Calendar / Holidays Card */}
+      {holidays.length > 0 && (
+        <div className="p-5 bg-blue-50 border border-blue-200 rounded-lg">
+          <h3 className="text-md font-bold text-blue-900 mb-2">Institutional Holidays Calendar</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {holidays.slice(0, 6).map((h) => (
+              <div key={h.id} className="bg-white p-3 rounded border text-xs">
+                <span className="font-bold text-gray-800">{h.name}</span>
+                <div className="text-gray-500 mt-1">
+                  {h.date} &bull; <span className="uppercase text-blue-600 font-semibold">{h.holiday_type}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

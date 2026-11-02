@@ -755,3 +755,651 @@ outes.tsx) |
 ### Final Recommendation
 * **Best Working Configuration:** qwen2.5-coder:7b with Q4_K_M quantization via Ollama using staged modular prompting. It produces production-ready Django REST Framework code and TypeScript interfaces with minimal hallucination.
 * **Practical Advice for Main Assignment:** Maintain strict module boundaries and never ask for full-stack code in a single prompt. Always provide the reference model imports (TimeStampedModel, UserRef) explicitly in the prompt preamble.
+
+### Phase 2 - Sprint 1: Holiday Calendar & Leave Calculation (BR-EL-003, BR-EL-011, BR-EL-012, BR-EL-014)
+* **Execution Timestamp:** 2026-11-02 22:41:58
+* **Prompt Tokens Evaluated:** 797
+* **Output Tokens Generated:** 463
+* **Generation Time:** 142.76 seconds (~3.24 tokens/sec)
+
+#### 1. Requirements Dispatched to Qwen 2.5 Coder
+```
+You are a Senior Django Backend Engineer working on the Fusion ERP Employee Leave Management (ELM) module.
+Implement Sprint 1: Holiday Calendar Model and Holiday-Aware Leave Calculation according to the following institutional business rules:
+
+Business Rules to Implement:
+1. BR-EL-003: Restricted Holiday (RH) allows maximum 2 days per calendar year. The date applied must exist in the institutional holiday calendar as a declared Restricted Holiday.
+2. BR-EL-011: Counting of Leave Days:
+   - For Casual Leave (CL): Intervening Sundays (weekday 6) and declared Gazetted Holidays do NOT count against the applicant's leave balance. Only working days (Monday-Saturday excluding Gazetted Holidays) are debited.
+   - For Earned Leave (EL), Vacation Leave (VL), Commuted Leave, and Special Casual Leave: Continuous calendar days are debited (intervening Sundays and Gazetted Holidays DO count against the balance).
+   - For half-day leave: Exactly 0.5 days are debited regardless of date.
+3. BR-EL-012: Maximum Continuous Span for Casual Leave is 8 days. Any CL request exceeding 8 continuous days is invalid.
+4. BR-EL-013 & BR-EL-014: If station_leave is True, station_leave_address must be a non-empty string.
+
+Requirements:
+1. Write a Django model `HolidayCalendar` inheriting from `core.db.mixins.TimeStampedModel`. It must include:
+   - `date`: models.DateField(unique=True)
+   - `name`: models.CharField(max_length=150)
+   - `holiday_type`: models.CharField(max_length=20, choices=[('gazetted', 'Gazetted Holiday'), ('restricted', 'Restricted Holiday')])
+   - `academic_year`: models.IntegerField()
+   - `description`: models.TextField(blank=True)
+2. Write a Python function `calculate_leave_days(start_date, end_date, leave_type_code, half_day=False)`:
+   - Takes start_date, end_date (date objects), leave_type_code (str e.g. 'CL', 'EL', 'RH'), and half_day (bool).
+   - If half_day is True, returns Decimal('0.5').
+   - If leave_type_code is 'CL': iterates through all dates from start_date to end_date inclusive. Skips any date where weekday == 6 (Sunday) OR HolidayCalendar has a holiday with holiday_type='gazetted' on that date. Returns the count of remaining days as Decimal.
+   - For other leave types (EL, etc.): returns Decimal((end_date - start_date).days + 1).
+3. Write a validation function `validate_leave_application(applicant, leave_type, start_date, end_date, half_day=False, station_leave=False, station_leave_address="")`:
+   - Checks:
+     a) start_date <= end_date.
+     b) If leave_type.code == 'CL': calculated days cannot exceed 8 (BR-EL-012).
+     c) If leave_type.code == 'RH': start_date and end_date must be identical (RH can only be 1 day at a time), and HolidayCalendar must have a record on that date with holiday_type='restricted' (BR-EL-003).
+     d) If station_leave is True: station_leave_address must be non-empty and stripped of whitespace (BR-EL-014).
+   - Returns (is_valid: bool, error_message: str or None).
+
+Output only clean, syntactically correct Python code. Do not output markdown explanations, just the code block.
+```
+
+#### 2. Engineering Audit & Changes
+Generated `HolidayCalendar` model, holiday-aware `calculate_leave_days` respecting Sunday/Gazetted holiday exemptions for CL, and `validate_leave_application` enforcing 8-day CL ceiling, RH calendar verification, and station leave address validation.
+
+#### 3. Model Output
+<details>
+<summary>Click to view raw Qwen response</summary>
+
+```
+```python
+from django.db import models
+from django.core.exceptions import ValidationError
+from decimal import Decimal
+from core.db.mixins import TimeStampedModel
+from django.utils import timezone
+
+class HolidayCalendar(TimeStampedModel):
+    date = models.DateField(unique=True)
+    name = models.CharField(max_length=150)
+    holiday_type = models.CharField(max_length=20, choices=[('gazetted', 'Gazetted Holiday'), ('restricted', 'Restricted Holiday')])
+    academic_year = models.IntegerField()
+    description = models.TextField(blank=True)
+
+    def __str__(self):
+        return f"{self.date} - {self.name}"
+
+def calculate_leave_days(start_date, end_date, leave_type_code, half_day=False):
+    if half_day:
+        return Decimal('0.5')
+    
+    if leave_type_code == 'CL':
+        working_days = 0
+        for day in range((end_date - start_date).days + 1):
+            current_date = start_date + timezone.timedelta(days=day)
+            if current_date.weekday() != 6 and not HolidayCalendar.objects.filter(date=current_date, holiday_type='gazetted').exists():
+                working_days += 1
+        return Decimal(working_days)
+    
+    return Decimal((end_date - start_date).days + 1)
+
+def validate_leave_application(applicant, leave_type, start_date, end_date, half_day=False, station_leave=False, station_leave_address=""):
+    if start_date > end_date:
+        return False, "Start date must be before or equal to end date."
+    
+    if leave_type.code == 'CL' and (end_date - start_date).days + 1 > 8:
+        return False, "Casual Leave cannot exceed 8 continuous days."
+    
+    if leave_type.code == 'RH':
+        if start_date != end_date:
+            return False, "Restricted Holiday can only be 1 day at a time."
+        if not HolidayCalendar.objects.filter(date=start_date, holiday_type='restricted').exists():
+            return False, "Selected date is not a Restricted Holiday."
+    
+    if station_leave and not station_leave_address.strip():
+        return False, "Station leave address must be provided."
+    
+    return True, None
+```
+```
+
+</details>
+
+---
+
+### Phase 2 - Sprint 2: Substitute Handling & Re-Nomination (BR-EL-014, BR-EL-015, EL-UC-019)
+* **Execution Timestamp:** 2026-11-02 22:44:10
+* **Prompt Tokens Evaluated:** 618
+* **Output Tokens Generated:** 372
+* **Generation Time:** 97.27 seconds (~3.82 tokens/sec)
+
+#### 1. Requirements Dispatched to Qwen 2.5 Coder
+```
+You are a Senior Django Backend Engineer working on the Fusion ERP Employee Leave Management (ELM) module.
+Implement Sprint 2: Substitute Handling, Decline Recovery & Re-Nomination (BR-EL-014, BR-EL-015, EL-UC-019).
+
+Business Rules to Implement:
+1. BR-EL-015: Substitute Arrangement Workflow:
+   - When an applicant submits a leave request requiring a substitute, the request enters status 'awaiting_substitute' with substitute_status='pending'.
+   - The nominated substitute can either accept or decline the arrangement.
+   - If accepted: substitute_status becomes 'accepted', and request status transitions to 'pending_unit_head'.
+   - If declined: substitute_status becomes 'declined', and request status transitions to 'substitute_declined'.
+2. EL-UC-019: Substitute Decline Recovery & Re-Nomination:
+   - When a substitute declines, the applicant is notified and can nominate an alternative substitute colleague.
+   - Applicant cannot nominate themselves as their own substitute.
+   - Upon successful re-nomination, the request substitute is updated to the new user, substitute_status resets to 'pending', and request status returns to 'awaiting_substitute'.
+   - An action log record is created with action='substitute_renominated'.
+
+Requirements:
+Write two atomic Django service functions:
+1. `respond_substitute(leave_request, substitute_user, decision, comments="")`:
+   - Validates that substitute_user is indeed the nominated substitute on leave_request.
+   - Validates that leave_request.status == 'awaiting_substitute'.
+   - If decision == 'accept': sets substitute_status = 'accepted', status = 'pending_unit_head'.
+   - If decision == 'decline': sets substitute_status = 'declined', status = 'substitute_declined'.
+   - If decision is anything else, raises ValueError.
+   - Saves leave_request.
+   - Creates a LeaveActionLog entry recording the decision and comments.
+   - Returns leave_request.
+
+2. `renominate_substitute(leave_request, applicant_user, new_substitute_user, comments="")`:
+   - Validates that applicant_user == leave_request.applicant.
+   - Validates that leave_request.status == 'substitute_declined'.
+   - Validates that new_substitute_user != applicant_user.
+   - Sets leave_request.substitute = new_substitute_user.
+   - Sets leave_request.substitute_status = 'pending'.
+   - Sets leave_request.status = 'awaiting_substitute'.
+   - Saves leave_request.
+   - Creates a LeaveActionLog entry with actor=applicant_user, role_name='employee', action='substitute_renominated', comments=comments.
+   - Returns leave_request.
+
+Output only clean, syntactically correct Python code with @transaction.atomic. Do not output markdown explanations.
+```
+
+#### 2. Engineering Audit & Changes
+Generated `respond_substitute` with strict validation, state transitions ('pending_unit_head' or 'substitute_declined'), and `renominate_substitute` enabling applicant re-selection of teaching/administrative substitute with audit trail.
+
+#### 3. Model Output
+<details>
+<summary>Click to view raw Qwen response</summary>
+
+```
+```python
+from django.db import transaction
+from django.utils import timezone
+from .models import LeaveRequest, LeaveActionLog
+
+@transaction.atomic
+def respond_substitute(leave_request, substitute_user, decision, comments=""):
+    if leave_request.substitute != substitute_user:
+        raise ValueError("Invalid substitute user")
+    if leave_request.status != 'awaiting_substitute':
+        raise ValueError("Invalid request status")
+    
+    if decision == 'accept':
+        leave_request.substitute_status = 'accepted'
+        leave_request.status = 'pending_unit_head'
+    elif decision == 'decline':
+        leave_request.substitute_status = 'declined'
+        leave_request.status = 'substitute_declined'
+    else:
+        raise ValueError("Invalid decision")
+    
+    leave_request.save()
+    LeaveActionLog.objects.create(
+        leave_request=leave_request,
+        actor=substitute_user,
+        role_name='substitute',
+        action=decision,
+        comments=comments
+    )
+    return leave_request
+
+@transaction.atomic
+def renominate_substitute(leave_request, applicant_user, new_substitute_user, comments=""):
+    if leave_request.applicant != applicant_user:
+        raise ValueError("Invalid applicant user")
+    if leave_request.status != 'substitute_declined':
+        raise ValueError("Invalid request status")
+    if new_substitute_user == applicant_user:
+        raise ValueError("Cannot nominate oneself as substitute")
+    
+    leave_request.substitute = new_substitute_user
+    leave_request.substitute_status = 'pending'
+    leave_request.status = 'awaiting_substitute'
+    leave_request.save()
+    LeaveActionLog.objects.create(
+        leave_request=leave_request,
+        actor=applicant_user,
+        role_name='employee',
+        action='substitute_renominated',
+        comments=comments
+    )
+    return leave_request
+```
+```
+
+</details>
+
+---
+
+### Phase 2 - Sprint 3: Approved Leave Cancellation & Ongoing Extension (BR-EL-023, BR-EL-025, EL-UC-008, EL-UC-009)
+* **Execution Timestamp:** 2026-11-02 22:46:39
+* **Prompt Tokens Evaluated:** 721
+* **Output Tokens Generated:** 503
+* **Generation Time:** 121.99 seconds (~4.12 tokens/sec)
+
+#### 1. Requirements Dispatched to Qwen 2.5 Coder
+```
+You are a Senior Django Backend Engineer working on the Fusion ERP Employee Leave Management (ELM) module.
+Implement Sprint 3: Approved Leave Cancellation and Ongoing Leave Extension (BR-EL-023, BR-EL-025, EL-UC-008, EL-UC-009).
+
+Business Rules to Implement:
+1. BR-EL-023 & EL-UC-008: Approved Leave Cancellation:
+   - An applicant can cancel an approved leave before it has commenced (i.e. timezone.now().date() <= leave_request.start_date).
+   - If already commenced or completed, raising a ValidationError or ValueError is required.
+   - When cancelled, the exact deducted days must be refunded atomically to the applicant's LeaveBalance for that leave type and year (balance.balance += deducted_days, balance.used_days -= deducted_days).
+   - The leave_request status becomes 'cancelled'.
+   - An action log record is created with action='cancelled', actor=applicant_user, role_name='employee', and comments.
+
+2. BR-EL-025 & EL-UC-009: Leave Extension:
+   - An applicant on an approved leave can apply for an extension with a new_end_date that is strictly greater than the current leave_request.end_date.
+   - Extension starts from (leave_request.end_date + timedelta(days=1)) to new_end_date.
+   - Additional leave days are computed for the extension interval.
+   - The system checks if applicant's LeaveBalance has sufficient quota for the additional days.
+   - If valid, the leave request's end_date is updated to new_end_date, and status transitions back to 'pending_unit_head' for sanction of the extended period.
+   - An action log record is created with action='extension_requested', actor=applicant_user, role_name='employee', and comments detailing original and extended dates.
+
+Requirements:
+Write two atomic Django service functions:
+1. `cancel_approved_leave(leave_request, applicant_user, comments="")`:
+   - Validates that applicant_user == leave_request.applicant.
+   - Validates that leave_request.status == 'approved'.
+   - Validates that timezone.now().date() <= leave_request.start_date.
+   - Computes leave days debited using `calculate_leave_days`.
+   - Updates `LeaveBalance`: `balance += days`, `used_days -= days`.
+   - Updates `leave_request.status = 'cancelled'`.
+   - Records `LeaveActionLog`.
+   - Returns leave_request.
+
+2. `request_leave_extension(leave_request, applicant_user, new_end_date, comments="")`:
+   - Validates that applicant_user == leave_request.applicant.
+   - Validates that leave_request.status == 'approved'.
+   - Validates that new_end_date > leave_request.end_date.
+   - Extension period starts at `leave_request.end_date + timezone.timedelta(days=1)` and ends at `new_end_date`.
+   - Computes additional days for extension period.
+   - Verifies sufficient balance in LeaveBalance.
+   - Updates `leave_request.end_date = new_end_date`.
+   - Updates `leave_request.status = 'pending_unit_head'`.
+   - Records `LeaveActionLog` with action='extension_requested'.
+   - Returns leave_request.
+
+Output only clean, syntactically correct Python code with @transaction.atomic. Do not output markdown explanations.
+```
+
+#### 2. Engineering Audit & Changes
+Generated `cancel_approved_leave` with automatic quota refunding to `LeaveBalance`, and `request_leave_extension` supporting continuous leave chaining and approval re-routing.
+
+#### 3. Model Output
+<details>
+<summary>Click to view raw Qwen response</summary>
+
+```
+```python
+from django.db import transaction
+from django.utils import timezone
+from django.core.exceptions import ValidationError
+from .models import LeaveRequest, LeaveBalance, LeaveActionLog
+
+@transaction.atomic
+def cancel_approved_leave(leave_request, applicant_user, comments=""):
+    if leave_request.applicant != applicant_user:
+        raise ValidationError("You are not authorized to cancel this leave request.")
+    if leave_request.status != 'approved':
+        raise ValidationError("This leave request is not approved.")
+    if timezone.now().date() > leave_request.start_date:
+        raise ValidationError("Cannot cancel a leave request that has already commenced or completed.")
+
+    days = calculate_leave_days(leave_request.start_date, leave_request.end_date)
+    balance = LeaveBalance.objects.get(user=applicant_user, leave_type=leave_request.leave_type, year=timezone.now().year)
+    balance.balance += days
+    balance.used_days -= days
+    balance.save()
+
+    leave_request.status = 'cancelled'
+    leave_request.save()
+
+    LeaveActionLog.objects.create(
+        leave_request=leave_request,
+        action='cancelled',
+        actor=applicant_user,
+        role_name='employee',
+        comments=comments
+    )
+
+    return leave_request
+
+@transaction.atomic
+def request_leave_extension(leave_request, applicant_user, new_end_date, comments=""):
+    if leave_request.applicant != applicant_user:
+        raise ValidationError("You are not authorized to extend this leave request.")
+    if leave_request.status != 'approved':
+        raise ValidationError("This leave request is not approved.")
+    if new_end_date <= leave_request.end_date:
+        raise ValidationError("New end date must be greater than the current end date.")
+
+    extension_start = leave_request.end_date + timezone.timedelta(days=1)
+    additional_days = calculate_leave_days(extension_start, new_end_date)
+
+    balance = LeaveBalance.objects.get(user=applicant_user, leave_type=leave_request.leave_type, year=timezone.now().year)
+    if balance.balance < additional_days:
+        raise ValidationError("Insufficient leave balance for the requested extension.")
+
+    leave_request.end_date = new_end_date
+    leave_request.status = 'pending_unit_head'
+    leave_request.save()
+
+    LeaveActionLog.objects.create(
+        leave_request=leave_request,
+        action='extension_requested',
+        actor=applicant_user,
+        role_name='employee',
+        comments=f"Original End Date: {leave_request.end_date}, Extended End Date: {new_end_date}"
+    )
+
+    return leave_request
+```
+```
+
+</details>
+
+---
+
+### Phase 2 - Sprint 4: Duty Resumption Workflow & Unconsumed Days Refund (BR-EL-027, BR-EL-028, EL-UC-010, EL-UC-011)
+* **Execution Timestamp:** 2026-11-02 22:50:30
+* **Prompt Tokens Evaluated:** 914
+* **Output Tokens Generated:** 925
+* **Generation Time:** 201.83 seconds (~4.58 tokens/sec)
+
+#### 1. Requirements Dispatched to Qwen 2.5 Coder
+```
+You are a Senior Django Backend Engineer working on the Fusion ERP Employee Leave Management (ELM) module.
+Implement Sprint 4: Duty Resumption Workflow & Unconsumed Days Refund (BR-EL-027, BR-EL-028, EL-UC-010, EL-UC-011).
+
+Business Rules to Implement:
+1. BR-EL-027 & EL-UC-010: Duty Resumption Submission:
+   - When an employee returns to duty following approved leave, they must submit a Duty Resumption report.
+   - The resumption_type is:
+     * 'normal': if resumption_date == leave_request.end_date + timedelta(days=1)
+     * 'early': if resumption_date <= leave_request.end_date
+     * 'late': if resumption_date > leave_request.end_date + timedelta(days=1)
+2. BR-EL-028 & EL-UC-011: Early Duty Resumption & Unconsumed Days Credit:
+   - If resumption_type is 'early':
+     * Calculate actual days availed from leave_request.start_date to (resumption_date - timedelta(days=1)). If resumption_date <= start_date, actual_days_availed = Decimal('0.0').
+     * Calculate unconsumed days = total_original_days - actual_days_availed.
+   - For 'normal' resumption: actual_days_availed = total_original_days, unconsumed_days = 0.
+   - When Duty Resumption is approved:
+     * If unconsumed_days > 0, atomically credit unconsumed_days back to applicant's LeaveBalance (balance += unconsumed_days, used_days -= unconsumed_days).
+     * Set duty_resumption.status = 'approved'.
+     * Set leave_request.status = 'completed'.
+     * Log action in LeaveActionLog.
+
+Requirements:
+1. Define Django model `DutyResumption` inheriting from `core.db.mixins.TimeStampedModel`:
+   - `leave_request`: OneToOneField(LeaveRequest, on_delete=models.CASCADE, related_name='duty_resumption')
+   - `resumption_date`: models.DateField()
+   - `resumption_type`: models.CharField(max_length=20, choices=[('normal', 'Normal'), ('early', 'Early'), ('late', 'Late')])
+   - `prefix_suffix_details`: models.TextField(blank=True)
+   - `actual_days_availed`: models.DecimalField(max_digits=5, decimal_places=1)
+   - `refunded_days`: models.DecimalField(max_digits=5, decimal_places=1, default=0)
+   - `status`: models.CharField(max_length=20, choices=[('submitted', 'Submitted'), ('approved', 'Approved'), ('rejected', 'Rejected')], default='submitted')
+   - `remarks`: models.TextField(blank=True)
+
+2. Write Django service function `submit_duty_resumption(leave_request, applicant_user, resumption_date, prefix_suffix="", remarks="")`:
+   - Validates applicant_user == leave_request.applicant.
+   - Validates leave_request.status == 'approved'.
+   - Computes total_original_days = calculate_leave_days(leave_request.start_date, leave_request.end_date, leave_request.leave_type.code, leave_request.half_day).
+   - Determines resumption_type ('early', 'normal', or 'late').
+   - Computes actual_days_availed and prospective refunded_days.
+   - Creates DutyResumption record.
+   - Logs action in LeaveActionLog.
+   - Returns DutyResumption instance.
+
+3. Write Django service function `approve_duty_resumption(duty_resumption, approver_user, role_name, comments="")`:
+   - Validates duty_resumption.status == 'submitted'.
+   - If duty_resumption.refunded_days > 0:
+     * Updates applicant's LeaveBalance (balance.balance += refunded_days, balance.used_days -= refunded_days).
+   - Sets duty_resumption.status = 'approved'.
+   - Sets duty_resumption.leave_request.status = 'completed'.
+   - Saves both models.
+   - Logs action in LeaveActionLog.
+   - Returns duty_resumption.
+
+Output only clean, syntactically correct Python code with @transaction.atomic. Do not output markdown explanations.
+```
+
+#### 2. Engineering Audit & Changes
+Generated `DutyResumption` model, `submit_duty_resumption` with classification (early/normal/late) and actual vs unconsumed day calculation, and `approve_duty_resumption` with atomic quota refunding and leave completion.
+
+#### 3. Model Output
+<details>
+<summary>Click to view raw Qwen response</summary>
+
+```
+```python
+from django.db import models, transaction
+from django.utils import timezone
+from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
+from decimal import Decimal
+from datetime import timedelta
+
+from core.db.mixins import TimeStampedModel
+from leave_management.models import LeaveRequest, LeaveBalance, LeaveActionLog
+
+class DutyResumption(TimeStampedModel):
+    leave_request = models.OneToOneField(LeaveRequest, on_delete=models.CASCADE, related_name='duty_resumption')
+    resumption_date = models.DateField()
+    resumption_type = models.CharField(max_length=20, choices=[('normal', 'Normal'), ('early', 'Early'), ('late', 'Late')])
+    prefix_suffix_details = models.TextField(blank=True)
+    actual_days_availed = models.DecimalField(max_digits=5, decimal_places=1)
+    refunded_days = models.DecimalField(max_digits=5, decimal_places=1, default=0)
+    status = models.CharField(max_length=20, choices=[('submitted', 'Submitted'), ('approved', 'Approved'), ('rejected', 'Rejected')], default='submitted')
+    remarks = models.TextField(blank=True)
+
+    def clean(self):
+        if self.resumption_date < self.leave_request.start_date:
+            raise ValidationError("Resumption date cannot be before the leave start date.")
+        if self.resumption_date > self.leave_request.end_date + timedelta(days=1):
+            raise ValidationError("Resumption date cannot be more than one day after the leave end date.")
+
+    def save(self, *args, **kwargs):
+        if not self.pk:
+            self.resumption_type = self._determine_resumption_type()
+            self.actual_days_availed, self.refunded_days = self._calculate_days()
+        super().save(*args, **kwargs)
+
+    def _determine_resumption_type(self):
+        if self.resumption_date == self.leave_request.end_date + timedelta(days=1):
+            return 'normal'
+        elif self.resumption_date <= self.leave_request.end_date:
+            return 'early'
+        else:
+            return 'late'
+
+    def _calculate_days(self):
+        if self.resumption_type == 'early':
+            start_date = self.leave_request.start_date
+            end_date = self.resumption_date - timedelta(days=1)
+            actual_days_availed = (end_date - start_date).days + 1 if end_date >= start_date else 0
+        else:
+            actual_days_availed = self.leave_request.total_original_days
+        refunded_days = self.leave_request.total_original_days - actual_days_availed
+        return Decimal(actual_days_availed), Decimal(refunded_days)
+
+@transaction.atomic
+def submit_duty_resumption(leave_request, applicant_user, resumption_date, prefix_suffix="", remarks=""):
+    if leave_request.applicant != applicant_user:
+        raise ValidationError("You are not authorized to submit this duty resumption.")
+    if leave_request.status != 'approved':
+        raise ValidationError("Leave request must be approved before submitting duty resumption.")
+
+    duty_resumption = DutyResumption(
+        leave_request=leave_request,
+        resumption_date=resumption_date,
+        prefix_suffix_details=prefix_suffix,
+        remarks=remarks
+    )
+    duty_resumption.save()
+
+    LeaveActionLog.objects.create(
+        user=applicant_user,
+        action_type='duty_resumption_submitted',
+        leave_request=leave_request,
+        details=f"Submitted duty resumption for {leave_request.start_date} to {leave_request.end_date}"
+    )
+
+    return duty_resumption
+
+@transaction.atomic
+def approve_duty_resumption(duty_resumption, approver_user, role_name, comments=""):
+    if duty_resumption.status != 'submitted':
+        raise ValidationError("Duty resumption must be submitted before approving.")
+
+    duty_resumption.status = 'approved'
+    duty_resumption.leave_request.status = 'completed'
+    duty_resumption.save()
+
+    if duty_resumption.refunded_days > 0:
+        leave_balance = duty_resumption.leave_request.applicant.leave_balance
+        leave_balance.balance += duty_resumption.refunded_days
+        leave_balance.used_days -= duty_resumption.refunded_days
+        leave_balance.save()
+
+    LeaveActionLog.objects.create(
+        user=approver_user,
+        action_type='duty_resumption_approved',
+        leave_request=duty_resumption.leave_request,
+        details=f"Approved duty resumption for {duty_resumption.leave_request.start_date} to {duty_resumption.leave_request.end_date}"
+    )
+
+    return duty_resumption
+```
+```
+
+</details>
+
+---
+
+### Phase 2 - Sprint 5: Year-End Rollover & Leave Lapse (BR-EL-006, BR-EL-007, BR-EL-008, EL-UC-020)
+* **Execution Timestamp:** 2026-11-02 22:53:13
+* **Prompt Tokens Evaluated:** 813
+* **Output Tokens Generated:** 541
+* **Generation Time:** 125.14 seconds (~4.32 tokens/sec)
+
+#### 1. Requirements Dispatched to Qwen 2.5 Coder
+```
+You are a Senior Django Backend Engineer working on the Fusion ERP Employee Leave Management (ELM) module.
+Implement Sprint 5: Year-End Rollover & Leave Lapse Service (BR-EL-006, BR-EL-007, BR-EL-008, EL-UC-020).
+
+Business Rules to Implement:
+1. BR-EL-008: Lapsing of Casual Leave (CL) and Restricted Holiday (RH):
+   - Unavailed balances for CL and RH at the end of the year do not carry forward. They lapse completely.
+   - For the new year (target_year), users receive their fresh annual quota (e.g. 8 days for CL, 2 days for RH).
+2. BR-EL-007: 50% Vacation Leave (VL) Rollover to Earned Leave (EL):
+   - For users with VL entitlement, 50% of the unavailed VL balance (int(vl_balance * 0.5)) is converted into Earned Leave (EL) for the new year.
+   - The remaining 50% of VL lapses. Fresh annual quota of VL is allocated for the new year.
+3. BR-EL-006: Earned Leave (EL) Maximum Accumulation Ceiling:
+   - Earned Leave carries forward. The new year's EL balance is calculated as:
+     carried_el = previous_year_el_balance + converted_vl_days + annual_el_quota
+   - The total accumulated EL balance cannot exceed 300 days.
+   - If carried_el > 300, cap it at Decimal('300.0').
+4. The service must process all active users atomically and create or update `LeaveBalance` records for `target_year`.
+
+Requirements:
+Write a Django service function `process_year_end_rollover(current_year, target_year=None)`:
+- If target_year is None, target_year = current_year + 1.
+- Uses @transaction.atomic.
+- Iterates over all users who have LeaveBalance records in `current_year`.
+- For each user:
+  a) Fetches current_year balances for 'CL', 'RH', 'EL', 'VL'.
+  b) Calculates 50% converted VL: `converted_vl = Decimal(int(vl_balance.balance * Decimal('0.5')))` if VL exists, else 0.
+  c) Computes new EL balance: `el_carry = el_balance.balance + converted_vl + el_type.annual_quota`.
+     If `el_carry > Decimal('300.0')`: `el_carry = Decimal('300.0')`.
+     Creates or updates LeaveBalance for (user, 'EL', target_year) with credited_days=el_carry, used_days=0, balance=el_carry.
+  d) For CL: creates or updates LeaveBalance for (user, 'CL', target_year) with credited_days=cl_type.annual_quota, used_days=0, balance=cl_type.annual_quota.
+  e) For RH: creates or updates LeaveBalance for (user, 'RH', target_year) with credited_days=rh_type.annual_quota, used_days=0, balance=rh_type.annual_quota.
+  f) For VL (if user has VL): creates or updates LeaveBalance for (user, 'VL', target_year) with credited_days=vl_type.annual_quota, used_days=0, balance=vl_type.annual_quota.
+- Returns a summary dictionary: `{"processed_users_count": count, "target_year": target_year}`.
+
+Output only clean, syntactically correct Python code with @transaction.atomic. Do not output markdown explanations.
+```
+
+#### 2. Engineering Audit & Changes
+Generated `process_year_end_rollover` enforcing CL/RH expiration, 50% Vacation Leave (VL) rollover into Earned Leave (EL), and strict 300-day statutory ceiling enforcement for EL accumulation.
+
+#### 3. Model Output
+<details>
+<summary>Click to view raw Qwen response</summary>
+
+```
+```python
+from django.db import transaction
+from decimal import Decimal
+from .models import LeaveBalance, LeaveType, User
+
+@transaction.atomic
+def process_year_end_rollover(current_year, target_year=None):
+    if target_year is None:
+        target_year = current_year + 1
+
+    processed_users_count = 0
+
+    for user in User.objects.filter(leavebalance__year=current_year).distinct():
+        processed_users_count += 1
+
+        cl_type = LeaveType.objects.get(code='CL')
+        rh_type = LeaveType.objects.get(code='RH')
+        el_type = LeaveType.objects.get(code='EL')
+        vl_type = LeaveType.objects.get(code='VL')
+
+        cl_balance = user.leavebalance_set.get(year=current_year, leave_type=cl_type)
+        rh_balance = user.leavebalance_set.get(year=current_year, leave_type=rh_type)
+        el_balance = user.leavebalance_set.get(year=current_year, leave_type=el_type)
+        vl_balance = user.leavebalance_set.get(year=current_year, leave_type=vl_type) if user.leavebalance_set.filter(year=current_year, leave_type=vl_type).exists() else None
+
+        converted_vl = Decimal(int(vl_balance.balance * Decimal('0.5'))) if vl_balance else Decimal('0.0')
+        el_carry = el_balance.balance + converted_vl + el_type.annual_quota
+        el_carry = min(el_carry, Decimal('300.0'))
+
+        LeaveBalance.objects.update_or_create(
+            user=user,
+            leave_type=el_type,
+            year=target_year,
+            defaults={'credited_days': el_carry, 'used_days': 0, 'balance': el_carry}
+        )
+
+        LeaveBalance.objects.update_or_create(
+            user=user,
+            leave_type=cl_type,
+            year=target_year,
+            defaults={'credited_days': cl_type.annual_quota, 'used_days': 0, 'balance': cl_type.annual_quota}
+        )
+
+        LeaveBalance.objects.update_or_create(
+            user=user,
+            leave_type=rh_type,
+            year=target_year,
+            defaults={'credited_days': rh_type.annual_quota, 'used_days': 0, 'balance': rh_type.annual_quota}
+        )
+
+        if vl_balance:
+            LeaveBalance.objects.update_or_create(
+                user=user,
+                leave_type=vl_type,
+                year=target_year,
+                defaults={'credited_days': vl_type.annual_quota, 'used_days': 0, 'balance': vl_type.annual_quota}
+            )
+
+    return {"processed_users_count": processed_users_count, "target_year": target_year}
+```
+```
+
+</details>
+
+---

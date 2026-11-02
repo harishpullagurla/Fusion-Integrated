@@ -7,6 +7,15 @@ export interface LeaveType {
   max_continuous_days: number;
 }
 
+export interface HolidayCalendar {
+  id: number;
+  date: string;
+  name: string;
+  holiday_type: 'gazetted' | 'restricted';
+  academic_year: number;
+  description?: string;
+}
+
 export interface LeaveBalance {
   id: number;
   user: string;
@@ -27,6 +36,18 @@ export interface LeaveActionLog {
   created_at: string;
 }
 
+export interface DutyResumption {
+  id: number;
+  leave_request: number;
+  resumption_date: string;
+  resumption_type: 'normal' | 'early' | 'late';
+  prefix_suffix_details?: string;
+  actual_days_availed: number;
+  refunded_days: number;
+  status: 'submitted' | 'approved' | 'rejected';
+  remarks?: string;
+}
+
 export interface LeaveRequest {
   id: number;
   applicant: string | number;
@@ -41,6 +62,7 @@ export interface LeaveRequest {
   substitute?: string | number;
   substitute_status: string;
   status: string;
+  duty_resumption?: DutyResumption;
   action_logs?: LeaveActionLog[];
   created_at?: string;
 }
