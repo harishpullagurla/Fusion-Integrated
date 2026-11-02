@@ -1,4 +1,4 @@
-interface LeaveType {
+export interface LeaveType {
   code: string;
   name: string;
   description: string;
@@ -7,40 +7,40 @@ interface LeaveType {
   max_continuous_days: number;
 }
 
-interface LeaveBalance {
+export interface LeaveBalance {
   id: number;
   user: string;
-  leave_type: LeaveType;
+  leave_type: LeaveType | string;
   year: number;
   credited_days: number;
   used_days: number;
   balance: number;
 }
 
-interface LeaveActionLog {
+export interface LeaveActionLog {
   id: number;
-  leave_request: LeaveRequest;
+  leave_request: number;
   actor: string;
   role_name: string;
   action: string;
   comments: string;
-  created_at: Date;
+  created_at: string;
 }
 
-interface LeaveRequest {
+export interface LeaveRequest {
   id: number;
-  applicant: string;
-  leave_type: LeaveType;
-  start_date: Date;
-  end_date: Date;
+  applicant: string | number;
+  leave_type: LeaveType | string;
+  start_date: string;
+  end_date: string;
   half_day: boolean;
-  half_day_period: string;
+  half_day_period?: string;
   purpose: string;
   station_leave: boolean;
-  station_leave_address: string;
-  substitute: string;
+  station_leave_address?: string;
+  substitute?: string | number;
   substitute_status: string;
   status: string;
-  action_logs: LeaveActionLog[];
-  created_at: Date;
+  action_logs?: LeaveActionLog[];
+  created_at?: string;
 }

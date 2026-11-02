@@ -1,82 +1,125 @@
-from rest_framework import viewsets, status
+from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from django.contrib.auth.models import User
-from modules.elm.models import LeaveType, LeaveBalance, LeaveRequest, ActionLog
-from modules.elm.services.leave_service import submit_leave_request, respond_substitute, process_approval, withdraw_leave_request
-from modules.elm.api.serializers import LeaveTypeSerializer, LeaveBalanceSerializer, LeaveRequestSerializer, ActionLogSerializer
+from modules.directory.models import UserRef
+from modules.elm.models import LeaveType, LeaveBalance, LeaveRequest, LeaveActionLog
+from modules.elm.api.serializers import (
+    LeaveTypeSerializer,
+    LeaveBalanceSerializer,
+    LeaveRequestSerializer,
+    LeaveActionLogSerializer,
+    SubstituteResponseSerializer,
+    ApprovalActionSerializer,
+)
+from modules.elm.services.leave_service import (
+    respond_substitute,
+    process_approval,
+    withdraw_leave_request,
+)
 
-class LeaveTypeListView(viewsets.ReadOnlyModelViewSet):
-    queryset = LeaveType.objects.filter(is_active=True)
-    serializer_class = LeaveTypeSerializer
+
+def get_user_ref(user):
+    if hasattr(user, 'user_id'):
+        return UserRef.objects.filter(user_id=user.user_id).first()
+    if hasattr(user, 'id'):
+        return UserRef.objects.filter(user_id=user.id).first()
+    return None
+
+
+class LeaveTypeListView(APIView):
     permission_classes = [IsAuthenticated]
 
-class LeaveBalanceListView(viewsets.ReadOnlyModelViewSet):
-    serializer_class = LeaveBalanceSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        user = self.request.user
-        return LeaveBalance.objects.filter(user=user)
-
-class LeaveRequestListCreateView(viewsets.ModelViewSet):
-    serializer_class = LeaveRequestSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        user = self.request.user
-        return LeaveRequest.objects.filter(applicant=user)
-
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        leave_request = submit_leave_request(serializer.validated_data)
-        headers = self.get_success_headers(serializer.data)
-        return Response(LeaveRequestSerializer(leave_request).data, status=status.HTTP_201_CREATED, headers=headers)
-
-class LeaveRequestDetailView(viewsets.ReadOnlyModelViewSet):
-    queryset = LeaveRequest.objects.all()
-    serializer_class = LeaveRequestSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        user = self.request.user
-        return LeaveRequest.objects.filter(applicant=user)
-
-    def retrieve(self, request, *args, **kwargs):
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, context={'request': request})
+    def get(self, request):
+        leave_types = LeaveType.objects.all()
+        serializer = LeaveTypeSerializer(leave_types, many=True)
         return Response(serializer.data)
 
-class SubstituteResponseView(viewsets.ModelViewSet):
-    serializer_class = LeaveRequestSerializer
+
+class LeaveBalanceListView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        leave_request = respond_substitute(serializer.validated_data)
-        headers = self.get_success_headers(serializer.data)
-        return Response(LeaveRequestSerializer(leave_request).data, status=status.HTTP_201_CREATED, headers=headers)
+    def get(self, request):
+        user_ref = get_user_ref(request.user)
+        if user_ref:
+            leave_balances = LeaveBalance.objects.filter(user=user_ref)
+        else:
+            leave_balances = LeaveBalance.objects.none()
+        serializer = LeaveBalanceSerializer(leave_balances, many=True)
+        return Response(serializer.data)
 
-class LeaveApprovalActionView(viewsets.ModelViewSet):
-    serializer_class = LeaveRequestSerializer
+
+class LeaveRequestListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        leave_request = process_approval(serializer.validated_data)
-        headers = self.get_success_headers(serializer.data)
-        return Response(LeaveRequestSerializer(leave_request).data, status=status.HTTP_201_CREATED, headers=headers)
+    def get(self, request):
+        user_ref = get_user_ref(request.user)
+        if user_ref:
+            leave_requests = LeaveRequest.objects.filter(applicant=user_ref)
+        else:
+            leave_requests = LeaveRequest.objects.none()
+        serializer = LeaveRequestSerializer(leave_requests, many=True)
+        return Response(serializer.data)
 
-class LeaveWithdrawView(viewsets.ModelViewSet):
-    serializer_class = LeaveRequestSerializer
+    def post(self, request):
+        serializer = LeaveRequestSerializer(data=request.data)
+        if serializer.is_valid():
+            leave_request = serializer.save()
+            LeaveActionLog.objects.create(
+                leave_request=leave_request,
+                actor=leave_request.applicant,
+                role_name="employee",
+                action="submitted",
+            )
+            return Response(LeaveRequestSerializer(leave_request).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LeaveRequestDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        leave_request = withdraw_leave_request(serializer.validated_data)
-        headers = self.get_success_headers(serializer.data)
-        return Response(LeaveRequestSerializer(leave_request).data, status=status.HTTP_201_CREATED, headers=headers)
+    def get(self, request, pk):
+        leave_request = LeaveRequest.objects.get(pk=pk)
+        serializer = LeaveRequestSerializer(leave_request)
+        return Response(serializer.data)
+
+
+class SubstituteResponseView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        leave_request = LeaveRequest.objects.get(pk=pk)
+        serializer = SubstituteResponseSerializer(data=request.data)
+        if serializer.is_valid():
+            user_ref = get_user_ref(request.user)
+            decision = serializer.validated_data.get("decision")
+            comments = serializer.validated_data.get("comments", "")
+            updated = respond_substitute(leave_request, user_ref, decision, comments)
+            return Response(LeaveRequestSerializer(updated).data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LeaveApprovalActionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        leave_request = LeaveRequest.objects.get(pk=pk)
+        serializer = ApprovalActionSerializer(data=request.data)
+        if serializer.is_valid():
+            user_ref = get_user_ref(request.user)
+            action = serializer.validated_data.get("action")
+            role_name = serializer.validated_data.get("role_name", "unit_head")
+            comments = serializer.validated_data.get("comments", "")
+            updated = process_approval(leave_request, user_ref, role_name, action, comments)
+            return Response(LeaveRequestSerializer(updated).data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LeaveWithdrawView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        leave_request = LeaveRequest.objects.get(pk=pk)
+        user_ref = get_user_ref(request.user)
+        updated = withdraw_leave_request(leave_request, user_ref)
+        return Response(LeaveRequestSerializer(updated).data, status=status.HTTP_200_OK)
