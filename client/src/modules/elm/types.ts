@@ -2,7 +2,7 @@ export interface LeaveType {
   code: string;
   name: string;
   description: string;
-  annual_quota: number;
+  annual_quota: string | number;
   is_vacation: boolean;
   max_continuous_days: number;
 }
@@ -19,17 +19,20 @@ export interface HolidayCalendar {
 export interface LeaveBalance {
   id: number;
   user: string;
-  leave_type: LeaveType | string;
+  leave_type: string;
+  leave_type_code: string;
+  leave_type_name: string;
   year: number;
-  credited_days: number;
-  used_days: number;
-  balance: number;
+  credited_days: string | number;
+  used_days: string | number;
+  balance: string | number;
 }
 
 export interface LeaveActionLog {
   id: number;
   leave_request: number;
   actor: string;
+  actor_name?: string;
   role_name: string;
   action: string;
   comments: string;
@@ -39,11 +42,13 @@ export interface LeaveActionLog {
 export interface DutyResumption {
   id: number;
   leave_request: number;
+  applicant_name?: string;
+  leave_type_code?: string;
   resumption_date: string;
   resumption_type: 'normal' | 'early' | 'late';
   prefix_suffix_details?: string;
-  actual_days_availed: number;
-  refunded_days: number;
+  actual_days_availed: string | number;
+  refunded_days: string | number;
   status: 'submitted' | 'approved' | 'rejected';
   remarks?: string;
 }
@@ -51,7 +56,10 @@ export interface DutyResumption {
 export interface LeaveRequest {
   id: number;
   applicant: string | number;
-  leave_type: LeaveType | string;
+  applicant_name?: string;
+  leave_type: string;
+  leave_type_code?: string;
+  leave_type_name?: string;
   start_date: string;
   end_date: string;
   half_day: boolean;
@@ -60,14 +68,23 @@ export interface LeaveRequest {
   station_leave: boolean;
   station_leave_address?: string;
   substitute?: string | number;
-  substitute_status: string;
-  status: string;
+  substitute_name?: string;
+  substitute_status: 'pending' | 'accepted' | 'declined';
+  status: 'draft' | 'awaiting_substitute' | 'substitute_declined' | 'pending_unit_head' | 'pending_higher_sanction' | 'approved' | 'rejected' | 'withdrawn' | 'cancelled' | 'completed';
   duty_resumption?: DutyResumption;
   action_logs?: LeaveActionLog[];
   created_at?: string;
 }
 
-// Runtime object exports so Vite never encounters an empty ES module
+export interface SubstituteOption {
+  id: number;
+  user_id: number;
+  username: string;
+  display_name: string;
+  kind: string;
+  discipline?: string;
+}
+
 export const LeaveCategories = {
   CL: "CL",
   RH: "RH",

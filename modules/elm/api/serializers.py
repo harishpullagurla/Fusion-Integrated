@@ -2,6 +2,11 @@ from rest_framework import serializers
 from modules.elm.models import LeaveType, LeaveBalance, LeaveRequest, LeaveActionLog, HolidayCalendar, DutyResumption
 from modules.directory.models import UserRef
 
+class UserRefSimpleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserRef
+        fields = ['id', 'user_id', 'username', 'display_name', 'kind', 'discipline']
+
 class LeaveTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeaveType
@@ -13,20 +18,26 @@ class HolidayCalendarSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class LeaveBalanceSerializer(serializers.ModelSerializer):
-    leave_type = serializers.StringRelatedField()
-    user = serializers.StringRelatedField()
+    leave_type_code = serializers.CharField(source='leave_type.code', read_only=True)
+    leave_type_name = serializers.CharField(source='leave_type.name', read_only=True)
+    user_name = serializers.CharField(source='user.display_name', read_only=True)
 
     class Meta:
         model = LeaveBalance
         fields = '__all__'
 
 class LeaveActionLogSerializer(serializers.ModelSerializer):
+    actor_name = serializers.CharField(source='actor.display_name', read_only=True)
+
     class Meta:
         model = LeaveActionLog
         fields = '__all__'
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 class DutyResumptionSerializer(serializers.ModelSerializer):
+    applicant_name = serializers.CharField(source='leave_request.applicant.display_name', read_only=True)
+    leave_type_code = serializers.CharField(source='leave_request.leave_type.code', read_only=True)
+
     class Meta:
         model = DutyResumption
         fields = '__all__'
@@ -35,6 +46,10 @@ class DutyResumptionSerializer(serializers.ModelSerializer):
 class LeaveRequestSerializer(serializers.ModelSerializer):
     action_logs = LeaveActionLogSerializer(many=True, read_only=True)
     duty_resumption = DutyResumptionSerializer(read_only=True)
+    applicant_name = serializers.CharField(source='applicant.display_name', read_only=True)
+    substitute_name = serializers.CharField(source='substitute.display_name', read_only=True)
+    leave_type_code = serializers.CharField(source='leave_type.code', read_only=True)
+    leave_type_name = serializers.CharField(source='leave_type.name', read_only=True)
 
     class Meta:
         model = LeaveRequest
