@@ -44,3 +44,13 @@ export interface LeaveRequest {
   action_logs?: LeaveActionLog[];
   created_at?: string;
 }
+
+// Runtime object exports so Vite never encounters an empty ES module
+export const LeaveCategories = {
+  CL: "CL",
+  RH: "RH",
+  SCL: "SCL",
+  EL: "EL",
+  VL: "VL",
+  COL: "COL",
+} as const;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { LeaveType, LeaveRequest, LeaveBalance } from "./types";
+import type { LeaveRequest, LeaveBalance } from "./types";
 
 const LeaveDashboard: React.FC = () => {
   const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([]);
@@ -113,6 +113,8 @@ const LeaveDashboard: React.FC = () => {
         </button>
       </div>
 
+      {loading && <div className="text-sm text-blue-600 font-semibold">Updating dashboard...</div>}
+
       {errorMsg && (
         <div className="p-4 bg-red-50 text-red-700 rounded border border-red-200">{errorMsg}</div>
       )}
@@ -136,6 +138,39 @@ const LeaveDashboard: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Substitute Requests Pending My Action */}
+      {substituteRequests.length > 0 && (
+        <div className="p-5 bg-amber-50 border border-amber-200 rounded-lg">
+          <h3 className="text-md font-bold text-amber-900 mb-2">Substitute Consent Requests</h3>
+          <p className="text-xs text-amber-700 mb-3">Colleagues nominated you to handle responsibilities during their leave:</p>
+          <div className="space-y-2">
+            {substituteRequests.map((req) => (
+              <div key={req.id} className="flex justify-between items-center bg-white p-3 rounded border">
+                <div>
+                  <span className="font-semibold text-gray-800">Leave Request #{req.id}</span>
+                  <span className="text-xs text-gray-500 ml-2">({String(req.start_date)} to {String(req.end_date)})</span>
+                  <div className="text-xs text-gray-600">{req.purpose}</div>
+                </div>
+                <div className="space-x-2">
+                  <button
+                    onClick={() => handleSubstituteResponse(req.id, "accepted")}
+                    className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700"
+                  >
+                    Accept
+                  </button>
+                  <button
+                    onClick={() => handleSubstituteResponse(req.id, "declined")}
+                    className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
+                  >
+                    Decline
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Apply Form Modal/Panel */}
       {showApplyForm && (
