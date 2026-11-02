@@ -17,12 +17,13 @@ import {
   Text,
   Title,
   SimpleGrid,
-  Table,
   Timeline,
   Alert,
   LoadingOverlay,
   Menu,
+  ThemeIcon,
   Progress,
+  Tooltip,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
@@ -39,8 +40,12 @@ import {
   FaFileAlt,
   FaRedo,
   FaEllipsisH,
+  FaPlaneDeparture,
 } from "react-icons/fa";
 
+import { PageHeader } from "../../ui/components/PageHeader";
+import { DataTable, type Column } from "../../ui/components/DataTable";
+import { StatusBadge } from "../../ui/components/StatusBadge";
 import type {
   LeaveRequest,
   LeaveBalance,
@@ -53,7 +58,7 @@ export const LeaveDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string | null>("overview");
   const [loading, setLoading] = useState(false);
 
-  // Data states
+  // Core Data
   const [balances, setBalances] = useState<LeaveBalance[]>([]);
   const [myRequests, setMyRequests] = useState<LeaveRequest[]>([]);
   const [substituteInbox, setSubstituteInbox] = useState<LeaveRequest[]>([]);
@@ -62,7 +67,7 @@ export const LeaveDashboard: React.FC = () => {
   const [substitutesList, setSubstitutesList] = useState<SubstituteOption[]>([]);
   const [resumptionsList, setResumptionsList] = useState<DutyResumption[]>([]);
 
-  // Modals state
+  // Modals
   const [applyModalOpen, setApplyModalOpen] = useState(false);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<LeaveRequest | null>(null);
@@ -84,7 +89,7 @@ export const LeaveDashboard: React.FC = () => {
   const [approvalAction, setApprovalAction] = useState<"approve" | "recommend" | "reject">("approve");
   const [approvalComments, setApprovalComments] = useState("");
 
-  // Application form
+  // Application form values
   const [applyForm, setApplyForm] = useState({
     leave_type: "CL",
     start_date: "",
@@ -129,7 +134,7 @@ export const LeaveDashboard: React.FC = () => {
       console.error("Failed to load ELM data:", err);
       notifications.show({
         color: "red",
-        title: "Network Error",
+        title: "Connection Error",
         message: "Failed to connect to ELM backend service.",
       });
     } finally {
@@ -141,7 +146,6 @@ export const LeaveDashboard: React.FC = () => {
     fetchData();
   }, []);
 
-  // Handle Application Submit
   const handleApplySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -195,7 +199,6 @@ export const LeaveDashboard: React.FC = () => {
     }
   };
 
-  // Withdraw
   const handleWithdraw = async (reqId: number) => {
     try {
       const res = await fetch(`/api/v1/elm/requests/${reqId}/withdraw/`, { method: "POST" });
@@ -212,7 +215,6 @@ export const LeaveDashboard: React.FC = () => {
     }
   };
 
-  // Cancel Approved Leave
   const handleCancel = async (reqId: number) => {
     if (!window.confirm("Are you sure you want to cancel this approved leave? Quota will be refunded.")) return;
     try {
@@ -235,7 +237,6 @@ export const LeaveDashboard: React.FC = () => {
     }
   };
 
-  // Substitute Response
   const handleSubstituteDecision = async (reqId: number, decision: "accept" | "decline") => {
     try {
       const res = await fetch(`/api/v1/elm/requests/${reqId}/substitute-response/`, {
@@ -247,7 +248,7 @@ export const LeaveDashboard: React.FC = () => {
         notifications.show({
           color: decision === "accept" ? "green" : "orange",
           title: `Substitute Request ${decision === "accept" ? "Accepted" : "Declined"}`,
-          message: `Your decision has been logged and the workflow advanced.`,
+          message: `Your response has been recorded.`,
         });
         fetchData();
       }
@@ -256,7 +257,6 @@ export const LeaveDashboard: React.FC = () => {
     }
   };
 
-  // Re-Nominate Substitute
   const handleRenominate = async () => {
     if (!selectedForRenominate || !newSubId) return;
     try {
@@ -280,7 +280,6 @@ export const LeaveDashboard: React.FC = () => {
     }
   };
 
-  // Extension Submit
   const handleExtendSubmit = async () => {
     if (!selectedForExtend || !extendDate) return;
     try {
@@ -304,7 +303,6 @@ export const LeaveDashboard: React.FC = () => {
     }
   };
 
-  // Resumption Submit
   const handleResumptionSubmit = async () => {
     if (!selectedForResume || !resumptionDate) return;
     try {
@@ -328,7 +326,6 @@ export const LeaveDashboard: React.FC = () => {
     }
   };
 
-  // Sanction Action (Approve / Recommend / Reject)
   const handleSanctionAction = async () => {
     if (!selectedRequest) return;
     try {
@@ -352,7 +349,6 @@ export const LeaveDashboard: React.FC = () => {
     }
   };
 
-  // Approve Duty Resumption
   const handleApproveResumption = async (resId: number) => {
     try {
       const res = await fetch(`/api/v1/elm/resumptions/${resId}/action/`, {
@@ -374,66 +370,442 @@ export const LeaveDashboard: React.FC = () => {
     }
   };
 
-  // Helper badge color
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "approved":
-        return <Badge color="green" variant="light">Approved</Badge>;
-      case "completed":
-        return <Badge color="teal" variant="filled">Completed</Badge>;
-      case "rejected":
-        return <Badge color="red" variant="light">Rejected</Badge>;
-      case "cancelled":
-        return <Badge color="violet" variant="light">Cancelled</Badge>;
-      case "withdrawn":
-        return <Badge color="gray" variant="light">Withdrawn</Badge>;
-      case "substitute_declined":
-        return <Badge color="orange" variant="filled">Substitute Declined</Badge>;
-      case "awaiting_substitute":
-        return <Badge color="yellow" variant="light">Awaiting Substitute</Badge>;
-      case "pending_unit_head":
-        return <Badge color="blue" variant="light">Pending Unit Head</Badge>;
-      case "pending_higher_sanction":
-        return <Badge color="cyan" variant="light">Pending Higher Sanction</Badge>;
-      default:
-        return <Badge color="gray">{status}</Badge>;
-    }
-  };
+  const pendingSubCount = substituteInbox.filter((r) => r.substitute_status === "pending").length;
+
+  // Strongly-typed column specifications for DataTable
+  const myRequestColumns: Column<LeaveRequest>[] = [
+    {
+      key: "id",
+      header: "Request ID",
+      render: (r: LeaveRequest) => <Text fw={700} fz="sm" ff="monospace">#{r.id}</Text>,
+    },
+    {
+      key: "type",
+      header: "Category",
+      render: (r: LeaveRequest) => (
+        <Badge variant="outline" color="blue">
+          {r.leave_type_code || r.leave_type}
+        </Badge>
+      ),
+    },
+    {
+      key: "period",
+      header: "Dates & Duration",
+      render: (r: LeaveRequest) => (
+        <Stack gap={2}>
+          <Text size="sm" fw={600}>
+            {r.start_date} to {r.end_date}
+          </Text>
+          <Group gap={4}>
+            {r.half_day && (
+              <Badge size="xs" color="gray">
+                Half Day ({r.half_day_period})
+              </Badge>
+            )}
+            {r.station_leave && (
+              <Badge size="xs" color="indigo">
+                Station Leave
+              </Badge>
+            )}
+          </Group>
+        </Stack>
+      ),
+    },
+    {
+      key: "purpose",
+      header: "Purpose",
+      render: (r: LeaveRequest) => (
+        <Tooltip label={r.purpose} multiline w={280}>
+          <Text size="sm" maw={220} truncate>
+            {r.purpose}
+          </Text>
+        </Tooltip>
+      ),
+    },
+    {
+      key: "substitute",
+      header: "Substitute",
+      render: (r: LeaveRequest) =>
+        r.substitute_name ? (
+          <Stack gap={2}>
+            <Text size="xs" fw={600}>{r.substitute_name}</Text>
+            <Badge
+              size="xs"
+              color={
+                r.substitute_status === "accepted"
+                  ? "green"
+                  : r.substitute_status === "declined"
+                  ? "red"
+                  : "yellow"
+              }
+            >
+              {r.substitute_status}
+            </Badge>
+          </Stack>
+        ) : (
+          <Text size="xs" c="dimmed">None</Text>
+        ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (r: LeaveRequest) => <StatusBadge status={r.status} />,
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      align: "right",
+      render: (r: LeaveRequest) => (
+        <Group justify="flex-end" gap="xs">
+          {/* Substitute Declined recovery action */}
+          {r.status === "substitute_declined" && (
+            <Button
+              size="xs"
+              color="orange"
+              leftSection={<FaExchangeAlt size={10} />}
+              onClick={() => {
+                setSelectedForRenominate(r);
+                setRenominateModalOpen(true);
+              }}
+            >
+              Re-Nominate
+            </Button>
+          )}
+
+          {/* Approved actions: Cancel, Extend, Duty Resumption */}
+          {r.status === "approved" && (
+            <Menu shadow="md" width={180}>
+              <Menu.Target>
+                <Button size="xs" variant="light" rightSection={<FaEllipsisH size={10} />}>
+                  Manage
+                </Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item
+                  leftSection={<FaTimes size={12} color="red" />}
+                  onClick={() => handleCancel(r.id)}
+                >
+                  Cancel Leave
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={<FaCalendarAlt size={12} color="blue" />}
+                  onClick={() => {
+                    setSelectedForExtend(r);
+                    setExtendModalOpen(true);
+                  }}
+                >
+                  Extend Leave
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={<FaClock size={12} color="teal" />}
+                  onClick={() => {
+                    setSelectedForResume(r);
+                    setResumptionModalOpen(true);
+                  }}
+                >
+                  Duty Resumption
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
+          )}
+
+          {/* Pending withdraw */}
+          {["pending_unit_head", "pending_higher_sanction", "awaiting_substitute"].includes(r.status) && (
+            <Button
+              size="xs"
+              variant="subtle"
+              color="red"
+              onClick={() => handleWithdraw(r.id)}
+            >
+              Withdraw
+            </Button>
+          )}
+
+          {/* History Timeline */}
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            onClick={() => {
+              setSelectedRequest(r);
+              setHistoryModalOpen(true);
+            }}
+          >
+            <FaHistory size={14} />
+          </ActionIcon>
+        </Group>
+      ),
+    },
+  ];
+
+  const substituteColumns: Column<LeaveRequest>[] = [
+    {
+      key: "id",
+      header: "Request ID",
+      render: (r: LeaveRequest) => <Text fw={700} ff="monospace">#{r.id}</Text>,
+    },
+    {
+      key: "applicant",
+      header: "Applicant Colleague",
+      render: (r: LeaveRequest) => <Text fw={600} size="sm">{r.applicant_name || `User #${r.applicant}`}</Text>,
+    },
+    {
+      key: "period",
+      header: "Dates & Category",
+      render: (r: LeaveRequest) => (
+        <Text size="sm">
+          {r.leave_type_code} ({r.start_date} to {r.end_date})
+        </Text>
+      ),
+    },
+    {
+      key: "purpose",
+      header: "Reason / Purpose",
+      render: (r: LeaveRequest) => <Text size="sm">{r.purpose}</Text>,
+    },
+    {
+      key: "status",
+      header: "My Decision",
+      render: (r: LeaveRequest) => (
+        <Badge
+          color={
+            r.substitute_status === "accepted"
+              ? "green"
+              : r.substitute_status === "declined"
+              ? "red"
+              : "orange"
+          }
+        >
+          {r.substitute_status}
+        </Badge>
+      ),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      align: "right",
+      render: (r: LeaveRequest) =>
+        r.substitute_status === "pending" ? (
+          <Group justify="flex-end" gap="xs">
+            <Button
+              size="xs"
+              color="green"
+              leftSection={<FaCheck size={10} />}
+              onClick={() => handleSubstituteDecision(r.id, "accept")}
+            >
+              Accept
+            </Button>
+            <Button
+              size="xs"
+              color="red"
+              variant="outline"
+              leftSection={<FaTimes size={10} />}
+              onClick={() => handleSubstituteDecision(r.id, "decline")}
+            >
+              Decline
+            </Button>
+          </Group>
+        ) : null,
+    },
+  ];
+
+  const approvalColumns: Column<LeaveRequest>[] = [
+    {
+      key: "id",
+      header: "Request ID",
+      render: (r: LeaveRequest) => <Text fw={700} ff="monospace">#{r.id}</Text>,
+    },
+    {
+      key: "applicant",
+      header: "Applicant",
+      render: (r: LeaveRequest) => <Text fw={600} size="sm">{r.applicant_name || `User #${r.applicant}`}</Text>,
+    },
+    {
+      key: "type",
+      header: "Category",
+      render: (r: LeaveRequest) => <Badge color="blue">{r.leave_type_code}</Badge>,
+    },
+    {
+      key: "dates",
+      header: "Requested Period",
+      render: (r: LeaveRequest) => (
+        <Text size="sm">
+          {r.start_date} to {r.end_date}
+        </Text>
+      ),
+    },
+    {
+      key: "substitute",
+      header: "Substitute Arrangement",
+      render: (r: LeaveRequest) =>
+        r.substitute_name ? (
+          <Badge color="green" size="xs">
+            {r.substitute_name} (Accepted)
+          </Badge>
+        ) : (
+          <Text size="xs" c="dimmed">Not required</Text>
+        ),
+    },
+    {
+      key: "status",
+      header: "Current State",
+      render: (r: LeaveRequest) => <StatusBadge status={r.status} />,
+    },
+    {
+      key: "actions",
+      header: "Review",
+      align: "right",
+      render: (r: LeaveRequest) => (
+        <Button
+          size="xs"
+          color="blue"
+          onClick={() => {
+            setSelectedRequest(r);
+            setApprovalModalOpen(true);
+          }}
+        >
+          Review & Sanction
+        </Button>
+      ),
+    },
+  ];
+
+  const resumptionColumns: Column<DutyResumption>[] = [
+    {
+      key: "req_id",
+      header: "Leave Req",
+      render: (dr: DutyResumption) => <Text fw={700} ff="monospace">#{dr.leave_request}</Text>,
+    },
+    {
+      key: "applicant",
+      header: "Employee",
+      render: (dr: DutyResumption) => <Text size="sm" fw={600}>{dr.applicant_name}</Text>,
+    },
+    {
+      key: "date",
+      header: "Resumption Date",
+      render: (dr: DutyResumption) => <Text size="sm">{dr.resumption_date}</Text>,
+    },
+    {
+      key: "type",
+      header: "Type",
+      render: (dr: DutyResumption) => (
+        <Badge
+          color={
+            dr.resumption_type === "early"
+              ? "indigo"
+              : dr.resumption_type === "normal"
+              ? "green"
+              : "orange"
+          }
+        >
+          {dr.resumption_type.toUpperCase()}
+        </Badge>
+      ),
+    },
+    {
+      key: "availed",
+      header: "Actual Availed",
+      render: (dr: DutyResumption) => <Text size="sm">{dr.actual_days_availed} days</Text>,
+    },
+    {
+      key: "refunded",
+      header: "Days Refunded",
+      render: (dr: DutyResumption) => (
+        <Text fw={700} c={Number(dr.refunded_days) > 0 ? "teal" : "dimmed"} size="sm">
+          {dr.refunded_days} days
+        </Text>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (dr: DutyResumption) => <StatusBadge status={dr.status} />,
+    },
+    {
+      key: "action",
+      header: "Action",
+      align: "right",
+      render: (dr: DutyResumption) =>
+        dr.status === "submitted" ? (
+          <Button
+            size="xs"
+            color="green"
+            onClick={() => handleApproveResumption(dr.id)}
+          >
+            Approve Refund
+          </Button>
+        ) : null,
+    },
+  ];
+
+  const holidayColumns: Column<HolidayCalendar>[] = [
+    {
+      key: "date",
+      header: "Holiday Date",
+      render: (h: HolidayCalendar) => <Text fw={700} size="sm">{h.date}</Text>,
+    },
+    {
+      key: "name",
+      header: "Holiday Name",
+      render: (h: HolidayCalendar) => <Text fw={600} size="sm">{h.name}</Text>,
+    },
+    {
+      key: "type",
+      header: "Classification",
+      render: (h: HolidayCalendar) => (
+        <Badge color={h.holiday_type === "gazetted" ? "blue" : "violet"}>
+          {h.holiday_type === "gazetted" ? "Gazetted Holiday" : "Restricted Holiday (RH)"}
+        </Badge>
+      ),
+    },
+    {
+      key: "year",
+      header: "Academic Year",
+      render: (h: HolidayCalendar) => <Text size="sm">{h.academic_year}</Text>,
+    },
+    {
+      key: "rule",
+      header: "Institutional Leave Impact",
+      render: (h: HolidayCalendar) => (
+        <Text size="xs" c="dimmed">
+          {h.holiday_type === "gazetted"
+            ? "Exempt from Casual Leave debiting (BR-EL-011)"
+            : "Eligible for 1-day RH application (BR-EL-003)"}
+        </Text>
+      ),
+    },
+  ];
 
   return (
-    <Container size="xl" py="lg">
+    <Container size="xl" py="sm">
       <LoadingOverlay visible={loading} />
 
       {/* Header */}
-      <Paper p="md" mb="lg" radius="md" withBorder>
-        <Group justify="space-between" align="center">
-          <div>
-            <Title order={2} c="blue.8">Employee Leave Management (ELM)</Title>
-            <Text size="sm" c="dimmed">
-              Institutional portal for leave quotas, substitute arrangement, multi-tier sanctions, and duty resumption.
-            </Text>
-          </div>
+      <PageHeader
+        title="Leave Management (ELM)"
+        subtitle="Manage leave entitlements, workflow approvals, substitute responsibilities, and duty resumptions"
+        action={
           <Group>
             <Button
-              leftSection={<FaRedo />}
               variant="default"
+              leftSection={<FaRedo size={12} />}
               onClick={fetchData}
             >
               Refresh
             </Button>
             <Button
-              leftSection={<FaPlus />}
               color="blue"
+              leftSection={<FaPlus size={12} />}
               onClick={() => setApplyModalOpen(true)}
             >
               Apply for Leave
             </Button>
           </Group>
-        </Group>
-      </Paper>
+        }
+      />
 
-      {/* Substitute Alert banner if pending */}
-      {substituteInbox.filter((r) => r.substitute_status === "pending").length > 0 && (
+      {/* Alert banner if substitute requests are pending */}
+      {pendingSubCount > 0 && (
         <Alert
           icon={<FaUserCheck />}
           title="Substitute Arrangement Attention Required"
@@ -441,60 +813,51 @@ export const LeaveDashboard: React.FC = () => {
           mb="lg"
           radius="md"
         >
-          You have{" "}
-          <strong>
-            {substituteInbox.filter((r) => r.substitute_status === "pending").length}
-          </strong>{" "}
-          pending substitute arrangement request(s) awaiting your consent. Visit the "Substitute Requests" tab to review.
+          You have <strong>{pendingSubCount}</strong> pending substitute arrangement request(s) awaiting your consent.
+          Visit the <strong>Substitute Requests</strong> tab to review.
         </Alert>
       )}
 
       {/* Main Tabs */}
-      <Tabs value={activeTab} onChange={setActiveTab} radius="md" variant="outline">
-        <Tabs.List mb="md">
-          <Tabs.Tab value="overview" leftSection={<FaUmbrellaBeach />}>
-            Quotas & Balances
+      <Tabs value={activeTab} onChange={setActiveTab} radius="md" variant="pills" mb="xl">
+        <Tabs.List mb="lg">
+          <Tabs.Tab value="overview" leftSection={<FaUmbrellaBeach size={14} />}>
+            Entitlements & Summary
           </Tabs.Tab>
           <Tabs.Tab
             value="my_requests"
-            leftSection={<FaFileAlt />}
+            leftSection={<FaFileAlt size={14} />}
             rightSection={<Badge size="xs" circle>{myRequests.length}</Badge>}
           >
             My Applications
           </Tabs.Tab>
           <Tabs.Tab
             value="substitute_inbox"
-            leftSection={<FaUserCheck />}
-            rightSection={
-              substituteInbox.filter((r) => r.substitute_status === "pending").length > 0 ? (
-                <Badge size="xs" color="orange" circle>
-                  {substituteInbox.filter((r) => r.substitute_status === "pending").length}
-                </Badge>
-              ) : null
-            }
+            leftSection={<FaUserCheck size={14} />}
+            rightSection={pendingSubCount > 0 ? <Badge size="xs" color="orange" circle>{pendingSubCount}</Badge> : null}
           >
             Substitute Requests
           </Tabs.Tab>
           <Tabs.Tab
             value="approvals_inbox"
-            leftSection={<FaCalendarCheck />}
+            leftSection={<FaCalendarCheck size={14} />}
             rightSection={<Badge size="xs" color="blue" circle>{approvalsInbox.length}</Badge>}
           >
-            Approvals & Sanctions
+            Sanctions Inbox
           </Tabs.Tab>
           <Tabs.Tab
             value="resumptions"
-            leftSection={<FaClock />}
+            leftSection={<FaClock size={14} />}
             rightSection={<Badge size="xs" color="teal" circle>{resumptionsList.length}</Badge>}
           >
             Duty Resumptions
           </Tabs.Tab>
-          <Tabs.Tab value="holidays" leftSection={<FaCalendarAlt />}>
-            Academic Holidays
+          <Tabs.Tab value="holidays" leftSection={<FaCalendarAlt size={14} />}>
+            Academic Calendar
           </Tabs.Tab>
         </Tabs.List>
 
-        {/* Tab 1: Overview & Balances */}
+        {/* Tab 1: Entitlements & Summary */}
         <Tabs.Panel value="overview">
           <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }} spacing="md" mb="xl">
             {balances.map((b) => {
@@ -503,23 +866,55 @@ export const LeaveDashboard: React.FC = () => {
               const bal = Number(b.balance) || 0;
               const percentUsed = Math.min(100, Math.round((used / credited) * 100));
 
+              let icon = <FaUmbrellaBeach size={20} />;
+              let themeColor = "blue";
+              let badgeRule = "Standard";
+
+              if (b.leave_type_code === "CL") {
+                icon = <FaUmbrellaBeach size={20} />;
+                themeColor = "blue";
+                badgeRule = "Max 8 continuous days";
+              } else if (b.leave_type_code === "RH") {
+                icon = <FaCalendarAlt size={20} />;
+                themeColor = "violet";
+                badgeRule = "Calendar Verified";
+              } else if (b.leave_type_code === "EL") {
+                icon = <FaClock size={20} />;
+                themeColor = "teal";
+                badgeRule = "300 Days Statutory Cap";
+              } else if (b.leave_type_code === "VL") {
+                icon = <FaPlaneDeparture size={20} />;
+                themeColor = "orange";
+                badgeRule = "50% Rollover to EL";
+              }
+
               return (
-                <Card key={b.id} withBorder padding="lg" radius="md">
-                  <Group justify="space-between" mb="xs">
-                    <Text fw={700} size="sm" c="dimmed">
-                      {b.leave_type_code} - {b.leave_type_name}
-                    </Text>
-                    <Badge size="sm" variant="dot" color={bal > 0 ? "teal" : "red"}>
-                      {b.year}
-                    </Badge>
+                <Card key={b.id} padding="lg" radius="md" withBorder shadow="sm">
+                  <Group justify="space-between" align="flex-start" mb="xs">
+                    <div>
+                      <Text fw={700} size="sm" c="dimmed">
+                        {b.leave_type_code}
+                      </Text>
+                      <Text fw={600} size="xs" c="dark.3">
+                        {b.leave_type_name}
+                      </Text>
+                    </div>
+                    <ThemeIcon color={themeColor} variant="light" size={40} radius="md">
+                      {icon}
+                    </ThemeIcon>
                   </Group>
-                  <Text fz={28} fw={800} c="blue.7" my="xs">
-                    {bal}{" "}
-                    <Text span size="xs" fw={500} c="dimmed">
-                      days left
+
+                  <Group align="baseline" gap="xs" my="xs">
+                    <Text fz={32} fw={800} c={`${themeColor}.7`}>
+                      {bal}
                     </Text>
-                  </Text>
-                  <Progress value={percentUsed} color="blue" size="sm" radius="xl" mb="xs" />
+                    <Text size="xs" fw={500} c="dimmed">
+                      days remaining
+                    </Text>
+                  </Group>
+
+                  <Progress value={percentUsed} color={themeColor} size="sm" radius="xl" mb="xs" />
+
                   <Group justify="space-between" mt="xs">
                     <Text size="xs" c="dimmed">
                       Used: <strong>{used}</strong>
@@ -528,31 +923,38 @@ export const LeaveDashboard: React.FC = () => {
                       Quota: <strong>{credited}</strong>
                     </Text>
                   </Group>
+
+                  <Badge size="xs" variant="outline" color={themeColor} mt="md">
+                    {badgeRule}
+                  </Badge>
                 </Card>
               );
             })}
           </SimpleGrid>
 
           {/* Quick Institutional Rules Overview Card */}
-          <Paper p="lg" withBorder radius="md" bg="gray.0">
-            <Title order={4} mb="xs">Key Institutional Leave Rules (ELM)</Title>
+          <Paper p="xl" withBorder radius="md" bg="gray.0">
+            <Group justify="space-between" mb="md">
+              <Title order={4}>Institutional Leave Guidelines (ELM)</Title>
+              <Badge color="blue" variant="light">Academic Rules</Badge>
+            </Group>
             <SimpleGrid cols={{ base: 1, md: 3 }} spacing="md">
-              <Paper p="sm" withBorder bg="white" radius="sm">
-                <Text fw={600} size="sm" c="blue.8">Casual Leave (CL &le; 8 Days)</Text>
+              <Paper p="md" withBorder bg="white" radius="md">
+                <Text fw={600} size="sm" c="blue.8" mb={4}>Casual Leave (CL &le; 8 Days)</Text>
                 <Text size="xs" c="dimmed">
-                  Intervening Sundays and declared Gazetted Holidays do NOT count against CL balance. Maximum 8 continuous days.
+                  Sundays and declared Gazetted Holidays do not count against the Casual Leave balance. Maximum span of continuous leave is 8 days.
                 </Text>
               </Paper>
-              <Paper p="sm" withBorder bg="white" radius="sm">
-                <Text fw={600} size="sm" c="blue.8">Restricted Holidays (RH = 2 Days)</Text>
+              <Paper p="md" withBorder bg="white" radius="md">
+                <Text fw={600} size="sm" c="violet.8" mb={4}>Restricted Holiday (RH = 2 Days)</Text>
                 <Text size="xs" c="dimmed">
-                  Must be availed as single day on declared festival dates present in the Institutional Holiday Calendar.
+                  Single-day festival leave that must exist as an approved date in the Academic Holiday Calendar.
                 </Text>
               </Paper>
-              <Paper p="sm" withBorder bg="white" radius="sm">
-                <Text fw={600} size="sm" c="blue.8">Earned & Vacation Leave (EL / VL)</Text>
+              <Paper p="md" withBorder bg="white" radius="md">
+                <Text fw={600} size="sm" c="teal.8" mb={4}>Earned & Vacation Leave (EL / VL)</Text>
                 <Text size="xs" c="dimmed">
-                  Continuous day counting applies. Maximum EL accumulation is 300 days. 50% of unavailed VL rolls over into EL at year end.
+                  Continuous calendar day debiting applies. Up to 300 days of EL can accumulate. 50% of unavailed Vacation Leave rolls over into EL at year end.
                 </Text>
               </Paper>
             </SimpleGrid>
@@ -561,372 +963,92 @@ export const LeaveDashboard: React.FC = () => {
 
         {/* Tab 2: My Applications */}
         <Tabs.Panel value="my_requests">
-          <Paper withBorder radius="md">
-            <Table striped highlightOnHover verticalSpacing="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>ID</Table.Th>
-                  <Table.Th>Type</Table.Th>
-                  <Table.Th>Dates</Table.Th>
-                  <Table.Th>Purpose</Table.Th>
-                  <Table.Th>Substitute</Table.Th>
-                  <Table.Th>Status</Table.Th>
-                  <Table.Th style={{ textAlign: "right" }}>Actions</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {myRequests.length === 0 ? (
-                  <Table.Tr>
-                    <Table.Td colSpan={7} style={{ textAlign: "center" }} py="xl">
-                      <Text c="dimmed">No leave applications found. Click "+ Apply for Leave" to submit one.</Text>
-                    </Table.Td>
-                  </Table.Tr>
-                ) : (
-                  myRequests.map((req) => (
-                    <Table.Tr key={req.id}>
-                      <Table.Td fw={700}>#{req.id}</Table.Td>
-                      <Table.Td>
-                        <Badge variant="outline">{req.leave_type_code || req.leave_type}</Badge>
-                      </Table.Td>
-                      <Table.Td>
-                        <Text size="sm" fw={600}>
-                          {req.start_date} to {req.end_date}
-                        </Text>
-                        {req.half_day && (
-                          <Badge size="xs" color="gray">
-                            Half Day ({req.half_day_period})
-                          </Badge>
-                        )}
-                        {req.station_leave && (
-                          <Badge size="xs" color="indigo" ml={4}>
-                            Station Leave
-                          </Badge>
-                        )}
-                      </Table.Td>
-                      <Table.Td maw={200} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {req.purpose}
-                      </Table.Td>
-                      <Table.Td>
-                        {req.substitute_name ? (
-                          <Stack gap={2}>
-                            <Text size="xs" fw={600}>{req.substitute_name}</Text>
-                            <Badge size="xs" color={req.substitute_status === "accepted" ? "green" : req.substitute_status === "declined" ? "red" : "yellow"}>
-                              {req.substitute_status}
-                            </Badge>
-                          </Stack>
-                        ) : (
-                          <Text size="xs" c="dimmed">None</Text>
-                        )}
-                      </Table.Td>
-                      <Table.Td>{getStatusBadge(req.status)}</Table.Td>
-                      <Table.Td style={{ textAlign: "right" }}>
-                        <Group justify="flex-end" gap="xs">
-                          {/* Substitute Declined recovery action */}
-                          {req.status === "substitute_declined" && (
-                            <Button
-                              size="xs"
-                              color="orange"
-                              leftSection={<FaExchangeAlt />}
-                              onClick={() => {
-                                setSelectedForRenominate(req);
-                                setRenominateModalOpen(true);
-                              }}
-                            >
-                              Re-Nominate
-                            </Button>
-                          )}
-
-                          {/* Approved actions: Cancel, Extend, Duty Resumption */}
-                          {req.status === "approved" && (
-                            <Menu shadow="md" width={180}>
-                              <Menu.Target>
-                                <Button size="xs" variant="light" rightSection={<FaEllipsisH />}>
-                                  Manage
-                                </Button>
-                              </Menu.Target>
-                              <Menu.Dropdown>
-                                <Menu.Item
-                                  leftSection={<FaTimes color="red" />}
-                                  onClick={() => handleCancel(req.id)}
-                                >
-                                  Cancel Leave
-                                </Menu.Item>
-                                <Menu.Item
-                                  leftSection={<FaCalendarAlt color="blue" />}
-                                  onClick={() => {
-                                    setSelectedForExtend(req);
-                                    setExtendModalOpen(true);
-                                  }}
-                                >
-                                  Extend Leave
-                                </Menu.Item>
-                                <Menu.Item
-                                  leftSection={<FaClock color="teal" />}
-                                  onClick={() => {
-                                    setSelectedForResume(req);
-                                    setResumptionModalOpen(true);
-                                  }}
-                                >
-                                  Duty Resumption
-                                </Menu.Item>
-                              </Menu.Dropdown>
-                            </Menu>
-                          )}
-
-                          {/* Pending withdraw */}
-                          {["pending_unit_head", "pending_higher_sanction", "awaiting_substitute"].includes(req.status) && (
-                            <Button
-                              size="xs"
-                              variant="subtle"
-                              color="red"
-                              onClick={() => handleWithdraw(req.id)}
-                            >
-                              Withdraw
-                            </Button>
-                          )}
-
-                          {/* History Timeline */}
-                          <ActionIcon
-                            variant="subtle"
-                            color="gray"
-                            onClick={() => {
-                              setSelectedRequest(req);
-                              setHistoryModalOpen(true);
-                            }}
-                          >
-                            <FaHistory />
-                          </ActionIcon>
-                        </Group>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))
-                )}
-              </Table.Tbody>
-            </Table>
-          </Paper>
+          <Card padding="lg">
+            <DataTable<LeaveRequest>
+              rows={myRequests}
+              loading={loading}
+              rowKey={(r: LeaveRequest) => r.id}
+              minWidth={950}
+              empty={{
+                icon: FaFileAlt,
+                title: "No leave applications",
+                description: "You have not submitted any leave applications for the current academic session.",
+              }}
+              columns={myRequestColumns}
+            />
+          </Card>
         </Tabs.Panel>
 
         {/* Tab 3: Substitute Requests Inbox */}
         <Tabs.Panel value="substitute_inbox">
-          <Paper withBorder radius="md">
-            <Table striped highlightOnHover verticalSpacing="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Request ID</Table.Th>
-                  <Table.Th>Applicant</Table.Th>
-                  <Table.Th>Type & Dates</Table.Th>
-                  <Table.Th>Purpose</Table.Th>
-                  <Table.Th>My Consent Status</Table.Th>
-                  <Table.Th style={{ textAlign: "right" }}>Actions</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {substituteInbox.length === 0 ? (
-                  <Table.Tr>
-                    <Table.Td colSpan={6} style={{ textAlign: "center" }} py="xl">
-                      <Text c="dimmed">No substitute consent requests assigned to you.</Text>
-                    </Table.Td>
-                  </Table.Tr>
-                ) : (
-                  substituteInbox.map((req) => (
-                    <Table.Tr key={req.id}>
-                      <Table.Td fw={700}>#{req.id}</Table.Td>
-                      <Table.Td fw={600}>{req.applicant_name || `User #${req.applicant}`}</Table.Td>
-                      <Table.Td>
-                        <Text size="sm">{req.leave_type_code} ({req.start_date} to {req.end_date})</Text>
-                      </Table.Td>
-                      <Table.Td>{req.purpose}</Table.Td>
-                      <Table.Td>
-                        <Badge color={req.substitute_status === "accepted" ? "green" : req.substitute_status === "declined" ? "red" : "orange"}>
-                          {req.substitute_status}
-                        </Badge>
-                      </Table.Td>
-                      <Table.Td style={{ textAlign: "right" }}>
-                        {req.substitute_status === "pending" && (
-                          <Group justify="flex-end" gap="xs">
-                            <Button
-                              size="xs"
-                              color="green"
-                              leftSection={<FaCheck />}
-                              onClick={() => handleSubstituteDecision(req.id, "accept")}
-                            >
-                              Accept
-                            </Button>
-                            <Button
-                              size="xs"
-                              color="red"
-                              variant="outline"
-                              leftSection={<FaTimes />}
-                              onClick={() => handleSubstituteDecision(req.id, "decline")}
-                            >
-                              Decline
-                            </Button>
-                          </Group>
-                        )}
-                      </Table.Td>
-                    </Table.Tr>
-                  ))
-                )}
-              </Table.Tbody>
-            </Table>
-          </Paper>
+          <Card padding="lg">
+            <DataTable<LeaveRequest>
+              rows={substituteInbox}
+              loading={loading}
+              rowKey={(r: LeaveRequest) => r.id}
+              minWidth={850}
+              empty={{
+                icon: FaUserCheck,
+                title: "No substitute requests",
+                description: "You have not been nominated as a substitute for any pending leave applications.",
+              }}
+              columns={substituteColumns}
+            />
+          </Card>
         </Tabs.Panel>
 
         {/* Tab 4: Approvals & Sanctions Inbox */}
         <Tabs.Panel value="approvals_inbox">
-          <Paper withBorder radius="md">
-            <Table striped highlightOnHover verticalSpacing="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Request ID</Table.Th>
-                  <Table.Th>Applicant</Table.Th>
-                  <Table.Th>Category</Table.Th>
-                  <Table.Th>Period</Table.Th>
-                  <Table.Th>Substitute Status</Table.Th>
-                  <Table.Th>Current Status</Table.Th>
-                  <Table.Th style={{ textAlign: "right" }}>Sanction Action</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {approvalsInbox.length === 0 ? (
-                  <Table.Tr>
-                    <Table.Td colSpan={7} style={{ textAlign: "center" }} py="xl">
-                      <Text c="dimmed">No pending sanction requests in your approval queue.</Text>
-                    </Table.Td>
-                  </Table.Tr>
-                ) : (
-                  approvalsInbox.map((req) => (
-                    <Table.Tr key={req.id}>
-                      <Table.Td fw={700}>#{req.id}</Table.Td>
-                      <Table.Td fw={600}>{req.applicant_name || `User #${req.applicant}`}</Table.Td>
-                      <Table.Td><Badge>{req.leave_type_code}</Badge></Table.Td>
-                      <Table.Td>{req.start_date} to {req.end_date}</Table.Td>
-                      <Table.Td>
-                        {req.substitute_name ? (
-                          <Badge color="green" size="xs">{req.substitute_name} (Accepted)</Badge>
-                        ) : (
-                          <Text size="xs" c="dimmed">None required</Text>
-                        )}
-                      </Table.Td>
-                      <Table.Td>{getStatusBadge(req.status)}</Table.Td>
-                      <Table.Td style={{ textAlign: "right" }}>
-                        <Button
-                          size="xs"
-                          color="blue"
-                          onClick={() => {
-                            setSelectedRequest(req);
-                            setApprovalModalOpen(true);
-                          }}
-                        >
-                          Review & Action
-                        </Button>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))
-                )}
-              </Table.Tbody>
-            </Table>
-          </Paper>
+          <Card padding="lg">
+            <DataTable<LeaveRequest>
+              rows={approvalsInbox}
+              loading={loading}
+              rowKey={(r: LeaveRequest) => r.id}
+              minWidth={900}
+              empty={{
+                icon: FaCalendarCheck,
+                title: "Queue empty",
+                description: "There are no leave requests pending your sanction review.",
+              }}
+              columns={approvalColumns}
+            />
+          </Card>
         </Tabs.Panel>
 
         {/* Tab 5: Duty Resumptions */}
         <Tabs.Panel value="resumptions">
-          <Paper withBorder radius="md">
-            <Table striped highlightOnHover verticalSpacing="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Leave Req</Table.Th>
-                  <Table.Th>Applicant</Table.Th>
-                  <Table.Th>Resumption Date</Table.Th>
-                  <Table.Th>Type</Table.Th>
-                  <Table.Th>Actual Days Availed</Table.Th>
-                  <Table.Th>Refunded Days</Table.Th>
-                  <Table.Th>Status</Table.Th>
-                  <Table.Th style={{ textAlign: "right" }}>Action</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {resumptionsList.length === 0 ? (
-                  <Table.Tr>
-                    <Table.Td colSpan={8} style={{ textAlign: "center" }} py="xl">
-                      <Text c="dimmed">No duty resumptions recorded yet.</Text>
-                    </Table.Td>
-                  </Table.Tr>
-                ) : (
-                  resumptionsList.map((dr) => (
-                    <Table.Tr key={dr.id}>
-                      <Table.Td fw={700}>#{dr.leave_request}</Table.Td>
-                      <Table.Td>{dr.applicant_name}</Table.Td>
-                      <Table.Td fw={600}>{dr.resumption_date}</Table.Td>
-                      <Table.Td>
-                        <Badge color={dr.resumption_type === "early" ? "indigo" : dr.resumption_type === "normal" ? "green" : "orange"}>
-                          {dr.resumption_type.toUpperCase()}
-                        </Badge>
-                      </Table.Td>
-                      <Table.Td>{dr.actual_days_availed} days</Table.Td>
-                      <Table.Td fw={700} c={Number(dr.refunded_days) > 0 ? "teal" : "dimmed"}>
-                        {dr.refunded_days} days
-                      </Table.Td>
-                      <Table.Td>
-                        <Badge color={dr.status === "approved" ? "green" : "yellow"}>
-                          {dr.status}
-                        </Badge>
-                      </Table.Td>
-                      <Table.Td style={{ textAlign: "right" }}>
-                        {dr.status === "submitted" && (
-                          <Button
-                            size="xs"
-                            color="green"
-                            onClick={() => handleApproveResumption(dr.id)}
-                          >
-                            Approve Refund
-                          </Button>
-                        )}
-                      </Table.Td>
-                    </Table.Tr>
-                  ))
-                )}
-              </Table.Tbody>
-            </Table>
-          </Paper>
+          <Card padding="lg">
+            <DataTable<DutyResumption>
+              rows={resumptionsList}
+              loading={loading}
+              rowKey={(dr: DutyResumption) => dr.id}
+              minWidth={850}
+              empty={{
+                icon: FaClock,
+                title: "No duty resumptions",
+                description: "No duty resumption reports have been logged in the system.",
+              }}
+              columns={resumptionColumns}
+            />
+          </Card>
         </Tabs.Panel>
 
-        {/* Tab 6: Academic Holiday Calendar */}
+        {/* Tab 6: Academic Calendar */}
         <Tabs.Panel value="holidays">
-          <Paper withBorder radius="md">
-            <Table striped highlightOnHover verticalSpacing="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Date</Table.Th>
-                  <Table.Th>Holiday Name</Table.Th>
-                  <Table.Th>Classification</Table.Th>
-                  <Table.Th>Academic Year</Table.Th>
-                  <Table.Th>Rule Impact</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {holidays.map((h) => (
-                  <Table.Tr key={h.id}>
-                    <Table.Td fw={700}>{h.date}</Table.Td>
-                    <Table.Td fw={600}>{h.name}</Table.Td>
-                    <Table.Td>
-                      <Badge color={h.holiday_type === "gazetted" ? "blue" : "violet"}>
-                        {h.holiday_type === "gazetted" ? "Gazetted Holiday" : "Restricted Holiday (RH)"}
-                      </Badge>
-                    </Table.Td>
-                    <Table.Td>{h.academic_year}</Table.Td>
-                    <Table.Td>
-                      <Text size="xs">
-                        {h.holiday_type === "gazetted"
-                          ? "Exempt from Casual Leave debiting (BR-EL-011)"
-                          : "Eligible for 1-day RH application (BR-EL-003)"}
-                      </Text>
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </Paper>
+          <Card padding="lg">
+            <DataTable<HolidayCalendar>
+              rows={holidays}
+              loading={loading}
+              rowKey={(h: HolidayCalendar) => h.id}
+              minWidth={800}
+              empty={{
+                icon: FaCalendarAlt,
+                title: "Calendar empty",
+                description: "No institutional holidays recorded for the current academic session.",
+              }}
+              columns={holidayColumns}
+            />
+          </Card>
         </Tabs.Panel>
       </Tabs>
 
@@ -942,12 +1064,13 @@ export const LeaveDashboard: React.FC = () => {
           <Stack gap="md">
             <Select
               label="Leave Category"
+              description="Choose institutional leave category to debit"
               required
               data={[
                 { value: "CL", label: "Casual Leave (CL &le; 8 continuous days)" },
                 { value: "RH", label: "Restricted Holiday (RH 1 day, calendar verified)" },
                 { value: "SCL", label: "Special Casual Leave (SCL)" },
-                { value: "EL", label: "Earned Leave (EL - continuous counting)" },
+                { value: "EL", label: "Earned Leave (EL - continuous calendar days)" },
                 { value: "VL", label: "Vacation Leave (VL)" },
                 { value: "COL", label: "Commuted Leave (COL)" },
               ]}
@@ -993,6 +1116,7 @@ export const LeaveDashboard: React.FC = () => {
 
             <Checkbox
               label="Station Leave Permission (Leaving Headquarters)"
+              description="Required if traveling outside station during leave"
               checked={applyForm.station_leave}
               onChange={(e) => setApplyForm((prev) => ({ ...prev, station_leave: e.currentTarget.checked }))}
             />
@@ -1008,9 +1132,11 @@ export const LeaveDashboard: React.FC = () => {
             )}
 
             <Select
-              label="Nominate Colleague as Substitute (Optional/Required for Teaching/Admin)"
+              label="Nominate Colleague as Substitute"
+              description="Colleague covering academic/administrative responsibilities"
               placeholder="Search faculty or staff colleague..."
               clearable
+              searchable
               data={substitutesList.map((s) => ({
                 value: String(s.id),
                 label: `${s.display_name} (${s.username} - ${s.discipline || s.kind})`,
@@ -1020,10 +1146,10 @@ export const LeaveDashboard: React.FC = () => {
             />
 
             <Textarea
-              label="Purpose / Reason"
+              label="Reason / Purpose"
               required
               rows={3}
-              placeholder="Detailed justification for leave..."
+              placeholder="Institutional justification or personal reason..."
               value={applyForm.purpose}
               onChange={(e) => setApplyForm((prev) => ({ ...prev, purpose: e.target.value }))}
             />
@@ -1054,7 +1180,7 @@ export const LeaveDashboard: React.FC = () => {
               selectedRequest.action_logs.map((log) => (
                 <Timeline.Item
                   key={log.id}
-                  title={<Text fw={600} size="sm">{log.action.toUpperCase()}</Text>}
+                  title={<Text fw={600} size="sm">{log.action.replace(/_/g, " ").toUpperCase()}</Text>}
                   bullet={<FaCheck size={12} />}
                 >
                   <Text size="xs" c="dimmed">
@@ -1090,6 +1216,7 @@ export const LeaveDashboard: React.FC = () => {
           <Select
             label="Replacement Substitute"
             placeholder="Choose colleague..."
+            searchable
             data={substitutesList.map((s) => ({
               value: String(s.id),
               label: `${s.display_name} (${s.discipline || s.kind})`,
