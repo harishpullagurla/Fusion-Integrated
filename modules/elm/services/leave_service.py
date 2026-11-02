@@ -73,7 +73,10 @@ def check_overlapping_leave(user, start_date, end_date, half_day=False, half_day
         overlapping_requests = overlapping_requests.exclude(id=exclude_request_id)
     
     if half_day and half_day_period:
-        # Check if another half-day leave exists on the same period
+        # BR-EL-012: If any full-day leave overlaps, it is an invalid overlap
+        if overlapping_requests.filter(half_day=False).exists():
+            return True
+        # If any half-day leave on the SAME period overlaps, it is an invalid overlap
         return overlapping_requests.filter(
             half_day=True,
             half_day_period=half_day_period
@@ -239,7 +242,11 @@ def process_approval(leave_request, actor_user, role_name, action, comments=""):
     if leave_request.status not in ['pending_unit_head', 'pending_higher_sanction']:
         raise ValidationError(f"Cannot process approval on request with status '{leave_request.status}'. Request must be pending sanction.")
 
-    if action == 'recommend':
+    if action in ('recommend', 'not_recommended'):
+        # BR-EL-016: CL and RH are finalized at Unit Head level and do not escalate
+        if leave_request.leave_type.code in ('CL', 'RH') and leave_request.status == 'pending_unit_head':
+            raise ValidationError(f"{leave_request.leave_type.name} must be approved or rejected at the Unit Head level under BR-EL-016.")
+        # BR-EL-017: Unit Head records recommend or not_recommended; both advance to higher sanction
         leave_request.status = 'pending_higher_sanction'
     elif action == 'approve':
         leave_request.status = 'approved'
@@ -351,6 +358,9 @@ def request_leave_extension(leave_request, applicant_user, new_end_date, comment
         raise ValidationError("Unauthorized: only the applicant can extend this leave.")
     if leave_request.status != 'approved':
         raise ValidationError("Only approved leaves can be extended.")
+    # BR-EL-025: Extension is available only for ongoing EL, COL, and VL
+    if leave_request.leave_type.code not in ('EL', 'COL', 'VL'):
+        raise ValidationError(f"Leave extension is restricted to EL, COL, and VL under BR-EL-025 (requested {leave_request.leave_type.code}).")
     if new_end_date <= leave_request.end_date:
         raise ValidationError("new_end_date must be strictly greater than current end_date.")
 
@@ -398,6 +408,9 @@ def submit_duty_resumption(leave_request, applicant_user, resumption_date, prefi
         raise ValidationError("Unauthorized: only the applicant can submit duty resumption.")
     if leave_request.status != 'approved':
         raise ValidationError("Duty resumption can only be submitted for approved leaves.")
+    # BR-EL-027: Formal resumption review applies strictly to EL, COL, and VL
+    if leave_request.leave_type.code not in ('EL', 'COL', 'VL'):
+        raise ValidationError(f"Formal duty resumption is applicable only to EL, COL, and VL under BR-EL-027 (submitted for {leave_request.leave_type.code}).")
     if hasattr(leave_request, 'duty_resumption'):
         raise ValidationError("Duty resumption has already been submitted for this leave.")
 
@@ -572,3 +585,42 @@ def process_year_end_rollover(current_year, target_year=None):
         "current_year": current_year,
         "target_year": target_year
     }
+
+@transaction.atomic
+def record_offline_leave(applicant, leave_type, start_date, end_date, offline_reference,
+                         sanctioned_by="Administration", remarks=""):
+    """
+    BR-EL-029 & EL-UC-016: Synchronize already-sanctioned offline/paper leave.
+    Validates balance, deducts quota, sets status='approved' directly.
+    Initiates NO second approval routing.
+    """
+    start_date = _to_date(start_date)
+    end_date = _to_date(end_date)
+    requested_days = calculate_leave_days(start_date, end_date, leave_type.code, half_day=False)
+
+    has_bal, bal_or_msg = check_leave_balance(applicant, leave_type, requested_days, year=start_date.year)
+    if not has_bal:
+        raise ValidationError(f"Insufficient leave balance to record offline leave: need {requested_days} days.")
+
+    balance_obj = bal_or_msg
+    balance_obj.used_days += requested_days
+    balance_obj.balance -= requested_days
+    balance_obj.save()
+
+    leave_request = LeaveRequest.objects.create(
+        applicant=applicant,
+        leave_type=leave_type,
+        start_date=start_date,
+        end_date=end_date,
+        purpose=f"Offline sanctioned leave (Ref: {offline_reference}). {remarks}".strip(),
+        status='approved'
+    )
+
+    LeaveActionLog.objects.create(
+        leave_request=leave_request,
+        actor=applicant,
+        role_name='establishment',
+        action='approved',
+        comments=f"Retrospectively synchronized offline paper sanction. Ref: {offline_reference}. Sanctioned by {sanctioned_by}."
+    )
+    return leave_request

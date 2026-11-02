@@ -53,6 +53,21 @@ class ElmApiTestCase(TestCase):
             balance=Decimal("8.0")
         )
 
+        self.el_type = LeaveType.objects.create(
+            code="EL",
+            name="Earned Leave",
+            annual_quota=Decimal("30.0"),
+            max_continuous_days=30
+        )
+        self.el_balance = LeaveBalance.objects.create(
+            user=self.user_ref,
+            leave_type=self.el_type,
+            year=date.today().year,
+            credited_days=Decimal("30.0"),
+            used_days=Decimal("0.0"),
+            balance=Decimal("30.0")
+        )
+
         self.holiday = HolidayCalendar.objects.create(
             date=date(2026, 12, 25),
             name="Christmas Day",
@@ -125,16 +140,16 @@ class ElmApiTestCase(TestCase):
         # Create and approve request
         req = LeaveRequest.objects.create(
             applicant=self.user_ref,
-            leave_type=self.leave_type,
+            leave_type=self.el_type,
             start_date=date(2026, 12, 1),
             end_date=date(2026, 12, 3),
             purpose="Workshop",
             status="approved"
         )
         # Deduct balance as if approved
-        self.balance.balance -= Decimal("3.0")
-        self.balance.used_days += Decimal("3.0")
-        self.balance.save()
+        self.el_balance.balance -= Decimal("3.0")
+        self.el_balance.used_days += Decimal("3.0")
+        self.el_balance.save()
 
         # Submit duty resumption (normal resumption on 2026-12-04)
         res_resumption = self.client.post(
@@ -181,3 +196,45 @@ class ElmApiTestCase(TestCase):
         res = self.client.post(f"/api/v1/elm/requests/{req.id}/action/", {"action": "approve"})
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", res.data)
+
+    def test_export_printable_slip_api(self):
+        req = LeaveRequest.objects.create(
+            applicant=self.user_ref,
+            leave_type=self.leave_type,
+            start_date=date(2026, 12, 10),
+            end_date=date(2026, 12, 11),
+            purpose="Official university meeting",
+            status="approved"
+        )
+        res = self.client.get(f"/api/v1/elm/requests/{req.id}/export/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["document_title"], "OFFICIAL LEAVE APPLICATION SLIP")
+        self.assertEqual(res.data["request_id"], req.id)
+        self.assertEqual(res.data["applicant"]["username"], self.user_ref.username)
+
+    def test_record_offline_leave_api(self):
+        # Admin records offline sanctioned leave
+        admin_principal = Principal(
+            user_id=6,
+            username="admin",
+            display_name="Establishment Admin",
+            kind="staff",
+            active_role="admin",
+            roles=("admin", "establishment"),
+            permissions=frozenset(["elm:apply", "elm:view", "elm:approve"]),
+            modules=("elm",)
+        )
+        self.client.force_authenticate(user=admin_principal)
+
+        payload = {
+            "applicant": self.user_ref.user_id,
+            "leave_type": "CL",
+            "start_date": "2026-11-26",
+            "end_date": "2026-11-27",
+            "offline_reference": "EST/LEAVE/2026/042",
+            "sanctioned_by": "Registrar",
+            "remarks": "Special sanction granted by Registrar offline"
+        }
+        res = self.client.post("/api/v1/elm/requests/offline/", payload, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data["status"], "approved")

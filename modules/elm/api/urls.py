@@ -1,5 +1,7 @@
 from django.urls import path
 from .views import (
+    OfflineLeaveRecordView,
+    LeaveRequestExportView,
     LeaveTypeListView,
     HolidayCalendarListView,
     EligibleSubstitutesListView,
@@ -46,4 +48,7 @@ urlpatterns = [
 
     # Administrative Services Endpoints
     path('admin/year-end-rollover/', YearEndRolloverView.as_view(), name='year-end-rollover'),
+    path('rollover/', YearEndRolloverView.as_view(), name='rollover-direct'),
+    path('requests/offline/', OfflineLeaveRecordView.as_view(), name='leave-request-offline'),
+    path('requests/<int:pk>/export/', LeaveRequestExportView.as_view(), name='leave-request-export'),
 ]

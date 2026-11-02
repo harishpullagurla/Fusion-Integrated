@@ -277,7 +277,7 @@ class ElmServicesTestCase(TestCase):
         end = date(2026, 12, 2)
         req = submit_leave_request(
             applicant=self.employee,
-            leave_type=self.cl_type,
+            leave_type=self.el_type,
             start_date=start,
             end_date=end,
             purpose="Conference"

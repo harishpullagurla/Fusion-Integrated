@@ -417,3 +417,96 @@ class YearEndRolloverView(APIView):
             except Exception as e:
                 return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class OfflineLeaveRecordView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        active_role = getattr(getattr(request, 'principal', None), 'active_role', 'admin')
+        if active_role not in ['admin', 'establishment']:
+            return Response({'error': f"Role '{active_role}' is not authorized to record offline sanctioned leave (BR-EL-029)."}, status=status.HTTP_403_FORBIDDEN)
+
+        data = request.data
+        try:
+            applicant = UserRef.objects.get(pk=data['applicant'])
+            leave_type = LeaveType.objects.get(pk=data['leave_type'])
+            offline_ref = data.get('offline_reference', 'OFFLINE-ORDER')
+            sanctioned_by = data.get('sanctioned_by', 'Administration')
+            remarks = data.get('remarks', '')
+
+            from modules.elm.services.leave_service import record_offline_leave
+            leave_req = record_offline_leave(
+                applicant=applicant,
+                leave_type=leave_type,
+                start_date=data['start_date'],
+                end_date=data['end_date'],
+                offline_reference=offline_ref,
+                sanctioned_by=sanctioned_by,
+                remarks=remarks
+            )
+            return Response(LeaveRequestSerializer(leave_req).data, status=status.HTTP_201_CREATED)
+        except (UserRef.DoesNotExist, LeaveType.DoesNotExist) as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValidationError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LeaveRequestExportView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, pk):
+        try:
+            leave_request = LeaveRequest.objects.get(pk=pk)
+        except LeaveRequest.DoesNotExist:
+            return Response({'error': 'Leave request not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        from modules.elm.services.leave_service import calculate_leave_days
+        days = calculate_leave_days(
+            leave_request.start_date, leave_request.end_date,
+            leave_request.leave_type.code, leave_request.half_day
+        )
+
+        export_data = {
+            "document_title": "OFFICIAL LEAVE APPLICATION SLIP",
+            "request_id": leave_request.id,
+            "status": leave_request.get_status_display(),
+            "status_code": leave_request.status,
+            "applicant": {
+                "id": leave_request.applicant.user_id,
+                "name": leave_request.applicant.display_name,
+                "username": leave_request.applicant.username,
+                "discipline": leave_request.applicant.discipline,
+                "kind": leave_request.applicant.kind,
+            },
+            "leave_category": {
+                "code": leave_request.leave_type.code,
+                "name": leave_request.leave_type.name,
+            },
+            "duration": {
+                "start_date": leave_request.start_date.isoformat(),
+                "end_date": leave_request.end_date.isoformat(),
+                "total_days": str(days),
+                "half_day": leave_request.half_day,
+                "half_day_period": leave_request.half_day_period,
+            },
+            "purpose": leave_request.purpose,
+            "station_leave": {
+                "is_station_leave": leave_request.station_leave,
+                "address": leave_request.station_leave_address,
+            },
+            "substitute_arrangement": {
+                "nominated_substitute": leave_request.substitute.display_name if leave_request.substitute else "None Required",
+                "substitute_status": leave_request.get_substitute_status_display(),
+            },
+            "audit_trail": [
+                {
+                    "timestamp": log.created_at.isoformat(),
+                    "actor": log.actor.display_name,
+                    "role": log.role_name,
+                    "action": log.get_action_display(),
+                    "comments": log.comments,
+                }
+                for log in leave_request.action_logs.order_by("created_at")
+            ],
+        }
+        return Response(export_data, status=status.HTTP_200_OK)
