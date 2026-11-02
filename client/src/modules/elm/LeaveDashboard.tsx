@@ -26,6 +26,7 @@ import {
   Tooltip,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
+import { useAuth } from "../../auth/AuthProvider";
 import {
   FaCalendarAlt,
   FaCalendarCheck,
@@ -55,8 +56,15 @@ import type {
 } from "./types";
 
 export const LeaveDashboard: React.FC = () => {
+  const { session } = useAuth();
+  const activeRole = session?.active_role || "faculty";
+  const userDisplayName = session?.user?.display_name || session?.user?.username || "Faculty Member";
+  const isApprover = ["hod", "unit_head", "dean", "director", "admin", "establishment"].includes(activeRole);
+  const isAdmin = ["admin", "establishment"].includes(activeRole);
+
   const [activeTab, setActiveTab] = useState<string | null>("overview");
   const [loading, setLoading] = useState(false);
+  const [rolloverModalOpen, setRolloverModalOpen] = useState(false);
 
   // Core Data
   const [balances, setBalances] = useState<LeaveBalance[]>([]);
@@ -144,7 +152,31 @@ export const LeaveDashboard: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [activeRole, session?.user?.id]);
+
+  const handleRolloverSubmit = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch("/api/v1/elm/rollover/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current_year: 2026, target_year: 2027 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Rollover failed.");
+      notifications.show({
+        color: "green",
+        title: "Year-End Rollover Completed",
+        message: `Processed ${data.processed_users_count} employees: CL/RH lapsed, 50% VL rolled over, EL capped at 300 for year ${data.target_year}.`,
+      });
+      setRolloverModalOpen(false);
+      fetchData();
+    } catch (err: any) {
+      notifications.show({ color: "red", title: "Rollover Error", message: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleApplySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -784,10 +816,20 @@ export const LeaveDashboard: React.FC = () => {
 
       {/* Header */}
       <PageHeader
-        title="Leave Management (ELM)"
-        subtitle="Manage leave entitlements, workflow approvals, substitute responsibilities, and duty resumptions"
+        title="Employee Leave Management (ELM)"
+        subtitle={`Session: ${userDisplayName} · Active Role: ${activeRole.toUpperCase()} · Discipline: ${session?.user?.kind?.toUpperCase() || "CSE"}`}
         action={
           <Group>
+            {isAdmin && (
+              <Button
+                variant="light"
+                color="violet"
+                leftSection={<FaRedo size={12} />}
+                onClick={() => setRolloverModalOpen(true)}
+              >
+                Year-End Rollover
+              </Button>
+            )}
             <Button
               variant="default"
               leftSection={<FaRedo size={12} />}
@@ -1001,6 +1043,27 @@ export const LeaveDashboard: React.FC = () => {
 
         {/* Tab 4: Approvals & Sanctions Inbox */}
         <Tabs.Panel value="approvals_inbox">
+          {!isApprover ? (
+            <Alert
+              icon={<FaCalendarCheck />}
+              title="Standard Faculty Mode"
+              color="blue"
+              radius="md"
+              mb="md"
+            >
+              You are currently logged in as <strong>{userDisplayName}</strong> with role <strong>{activeRole.toUpperCase()}</strong>. Regular faculty members do not have departmental sanctioning authority. To review and approve department leave requests, switch your role to <strong>HOD</strong> or <strong>Dean</strong> using the role selector in the lower-left sidebar.
+            </Alert>
+          ) : (
+            <Alert
+              icon={<FaCalendarCheck />}
+              title={`${activeRole.toUpperCase()} Sanction Queue`}
+              color="indigo"
+              radius="md"
+              mb="md"
+            >
+              Viewing pending leave sanction requests for <strong>{userDisplayName}</strong> ({activeRole.toUpperCase()}). You can review substitute arrangements, grant unit approval, recommend to Dean/Director, or record decisions.
+            </Alert>
+          )}
           <Card padding="lg">
             <DataTable<LeaveRequest>
               rows={approvalsInbox}
@@ -1010,7 +1073,9 @@ export const LeaveDashboard: React.FC = () => {
               empty={{
                 icon: FaCalendarCheck,
                 title: "Queue empty",
-                description: "There are no leave requests pending your sanction review.",
+                description: isApprover
+                  ? `There are no leave requests pending ${activeRole.toUpperCase()} review at this time.`
+                  : "Approvals queue is inactive for faculty mode.",
               }}
               columns={approvalColumns}
             />
@@ -1327,6 +1392,39 @@ export const LeaveDashboard: React.FC = () => {
               onClick={handleSanctionAction}
             >
               Confirm Action
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+          {/* Year End Rollover Modal for Admin */}
+      <Modal
+        opened={rolloverModalOpen}
+        onClose={() => setRolloverModalOpen(false)}
+        title="Execute Annual Leave Rollover"
+        size="md"
+      >
+        <Stack gap="md">
+          <Text size="sm">
+            Executing the statutory Year-End Rollover will:
+          </Text>
+          <Text size="xs" c="dimmed">
+            1. <strong>Lapse all unavailed Casual Leave (CL) and Restricted Holiday (RH)</strong> for Academic Year 2026.
+          </Text>
+          <Text size="xs" c="dimmed">
+            2. <strong>Convert 50% of unavailed Vacation Leave (VL)</strong> into Earned Leave (EL) for year 2027.
+          </Text>
+          <Text size="xs" c="dimmed">
+            3. <strong>Carry forward Earned Leave (EL)</strong>, enforcing the statutory 300-day accumulation cap.
+          </Text>
+          <Text size="xs" c="dimmed">
+            4. <strong>Grant fresh annual quotas</strong> for all active faculty and staff in Academic Year 2027.
+          </Text>
+          <Group justify="flex-end" mt="md">
+            <Button variant="default" onClick={() => setRolloverModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button color="violet" onClick={handleRolloverSubmit}>
+              Confirm & Execute Rollover
             </Button>
           </Group>
         </Stack>

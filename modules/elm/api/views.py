@@ -121,13 +121,21 @@ class LeaveRequestListCreateView(APIView):
     def get(self, request):
         user_ref = get_user_ref(request.user)
         scope = request.query_params.get('scope', 'my')
+        active_role = getattr(getattr(request, 'principal', None), 'active_role', 'faculty')
 
         if scope == 'substitute' and user_ref:
             leave_requests = LeaveRequest.objects.filter(substitute=user_ref).order_by('-created_at')
         elif scope == 'approvals':
-            leave_requests = LeaveRequest.objects.filter(
-                status__in=['pending_unit_head', 'pending_higher_sanction']
-            ).order_by('-created_at')
+            if active_role in ['hod', 'unit_head']:
+                leave_requests = LeaveRequest.objects.filter(status='pending_unit_head').order_by('-created_at')
+            elif active_role in ['dean', 'director']:
+                leave_requests = LeaveRequest.objects.filter(status='pending_higher_sanction').order_by('-created_at')
+            elif active_role in ['admin', 'establishment']:
+                leave_requests = LeaveRequest.objects.filter(
+                    status__in=['pending_unit_head', 'pending_higher_sanction']
+                ).order_by('-created_at')
+            else:
+                leave_requests = LeaveRequest.objects.none()
         elif scope == 'all':
             leave_requests = LeaveRequest.objects.all().order_by('-created_at')
         else:
@@ -257,9 +265,12 @@ class LeaveApprovalActionView(APIView):
         serializer = ApprovalActionSerializer(data=request.data)
         if serializer.is_valid():
             try:
+                active_role = getattr(getattr(request, 'principal', None), 'active_role', 'unit_head')
+                if active_role in ['faculty', 'staff', 'student']:
+                    return Response({'error': f"Role '{active_role}' does not have sanctioning privileges."}, status=status.HTTP_403_FORBIDDEN)
                 user_ref = get_user_ref(request.user) or UserRef.objects.first()
                 action = serializer.validated_data.get("action")
-                role_name = serializer.validated_data.get("role_name", "unit_head")
+                role_name = serializer.validated_data.get("role_name", active_role)
                 comments = serializer.validated_data.get("comments", "")
                 updated = process_approval(leave_request, user_ref, role_name, action, comments)
                 return Response(LeaveRequestSerializer(updated).data, status=status.HTTP_200_OK)

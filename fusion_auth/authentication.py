@@ -28,17 +28,66 @@ class IamSessionAuthentication(BaseAuthentication):
 
         if settings.DEBUG and token and token.startswith("dev-token-"):
             user_str = token.replace("dev-token-", "")
+            from modules.directory.models import UserRef
             from fusion_auth.dev_state import DEV_ACTIVE_ROLES
-            active_role = DEV_ACTIVE_ROLES.get(str(token), "faculty")
+
+            user_ref = UserRef.objects.filter(username=user_str).first()
+            if not user_ref:
+                user_ref = UserRef.objects.filter(user_id=1).first() or UserRef.objects.first()
+
+            uid = user_ref.user_id if user_ref else 1
+            uname = user_ref.username if user_ref else user_str
+            dname = user_ref.display_name if user_ref else f"Dr. {user_str.capitalize()}"
+            kind = user_ref.kind if user_ref else "faculty"
+
+            # Assign persona roles based on identity
+            if uname in ("admin", "est_officer"):
+                roles = ("admin", "establishment")
+            elif uname == "director":
+                roles = ("director", "faculty")
+            elif uname == "dean_fa":
+                roles = ("dean", "faculty")
+            elif uname == "hod_cse":
+                roles = ("hod", "faculty")
+            elif uname == "staff_rajesh":
+                roles = ("staff",)
+            elif uname == "student_rahul":
+                roles = ("student",)
+            elif uname == "harish":
+                roles = ("faculty", "hod")
+            else:
+                roles = ("faculty",)
+
+            # Determine active role
+            default_role = roles[0]
+            saved_role = DEV_ACTIVE_ROLES.get(str(token))
+            active_role = saved_role if (saved_role and saved_role in roles) else default_role
+
+            # Determine permissions based on active role
+            if active_role in ("admin", "establishment"):
+                permissions = frozenset(["elm:apply", "elm:view", "elm:approve_unit_head", "elm:approve_higher", "elm:approve_resumption", "elm:admin_rollover", "elm:manage_calendar"])
+            elif active_role in ("dean", "director"):
+                permissions = frozenset(["elm:apply", "elm:view", "elm:approve_higher", "elm:substitute"])
+            elif active_role in ("hod", "unit_head"):
+                permissions = frozenset(["elm:apply", "elm:view", "elm:approve_unit_head", "elm:substitute"])
+            elif active_role in ("faculty", "staff"):
+                permissions = frozenset(["elm:apply", "elm:view", "elm:substitute"])
+            elif active_role == "student":
+                permissions = frozenset(["student:view"])
+            else:
+                permissions = frozenset(["elm:view"])
+
+            modules_list = ("elm", "placement_cell") if active_role != "student" else ("placement_cell",)
+
             principal = Principal(
-                user_id=1,
-                username=user_str,
-                display_name=f"Dr. {user_str.capitalize()}",
-                kind="faculty",
+                user_id=uid,
+                username=uname,
+                display_name=dname,
+                kind=kind,
                 active_role=active_role,
-                roles=("faculty", "hod", "dean", "director", "admin"),
-                permissions=frozenset(["elm:apply", "elm:view", "elm:approve"]),
-                modules=("elm", "placement_cell"),
+                roles=roles,
+                permissions=permissions,
+                modules=modules_list,
                 navigation=(
                     {
                         "section": "Employee Services",
@@ -54,7 +103,7 @@ class IamSessionAuthentication(BaseAuthentication):
                             }
                         ]
                     },
-                )
+                ) if active_role != "student" else ()
             )
             request.principal = principal
             return (principal, token)
