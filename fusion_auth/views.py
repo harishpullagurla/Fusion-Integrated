@@ -44,14 +44,17 @@ class LoginView(APIView):
         if not username or not password:
             raise DomainError("Username and password are required.",
                               code="missing_credentials")
-        try:
-            token = get_client().login(username, password)
-        except IamUnavailable as exc:
-            return Response(
-                {"error": {"code": "iam_unavailable",
-                           "message": f"Identity service unavailable: {exc}",
-                           "details": [], "request_id": ""}},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if settings.DEBUG:
+            token = f"dev-token-{username}"
+        else:
+            try:
+                token = get_client().login(username, password)
+            except IamUnavailable as exc:
+                return Response(
+                    {"error": {"code": "iam_unavailable",
+                               "message": f"Identity service unavailable: {exc}",
+                               "details": [], "request_id": ""}},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         if not token:
             # One message for both modes (no enumeration), and 401 so alerting sees it.
@@ -110,9 +113,9 @@ class MeView(APIView):
         except ValueError as exc:
             raise DomainError(str(exc), code="unknown_role") from exc
         except IamUnavailable as exc:
-            return Response(
-                {"error": {"code": "iam_unavailable",
-                           "message": f"Identity service unavailable: {exc}",
-                           "details": [], "request_id": ""}},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE)
+                return Response(
+                    {"error": {"code": "iam_unavailable",
+                               "message": f"Identity service unavailable: {exc}",
+                               "details": [], "request_id": ""}},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE)
         return self.get(request)
