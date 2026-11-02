@@ -38,7 +38,20 @@ class IamSessionAuthentication(BaseAuthentication):
                 permissions=frozenset(["elm:apply", "elm:view", "elm:approve"]),
                 modules=("elm", "placement_cell"),
                 navigation=(
-                    {"code": "elm", "label": "Leave Management", "path": "/elm", "icon": "calendar"},
+                    {
+                        "section": "Employee Services",
+                        "items": [
+                            {
+                                "code": "elm",
+                                "label": "Leave Management",
+                                "icon": "calendar",
+                                "to": "/elm",
+                                "links": [
+                                    {"code": "elm_dashboard", "label": "Leave Dashboard", "to": "/elm"}
+                                ]
+                            }
+                        ]
+                    },
                 )
             )
             request.principal = principal
