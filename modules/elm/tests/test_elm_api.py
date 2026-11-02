@@ -156,3 +156,28 @@ class ElmApiTestCase(TestCase):
 
         req.refresh_from_db()
         self.assertEqual(req.status, "completed")
+
+    def test_nonexistent_request_returns_404(self):
+        res = self.client.get("/api/v1/elm/requests/99999/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("error", res.data)
+
+        res_withdraw = self.client.post("/api/v1/elm/requests/99999/withdraw/")
+        self.assertEqual(res_withdraw.status_code, status.HTTP_404_NOT_FOUND)
+
+        res_cancel = self.client.post("/api/v1/elm/requests/99999/cancel/", {"comments": "test"})
+        self.assertEqual(res_cancel.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_invalid_state_transition_prevented(self):
+        req = LeaveRequest.objects.create(
+            applicant=self.user_ref,
+            leave_type=self.leave_type,
+            start_date=date(2026, 12, 10),
+            end_date=date(2026, 12, 11),
+            purpose="Workshop",
+            status="withdrawn"
+        )
+        # Attempt to approve a withdrawn request
+        res = self.client.post(f"/api/v1/elm/requests/{req.id}/action/", {"action": "approve"})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", res.data)

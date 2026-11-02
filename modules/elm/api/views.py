@@ -39,10 +39,14 @@ from modules.elm.services.leave_service import (
 
 def get_user_ref(user):
     if hasattr(user, 'user_id'):
-        return UserRef.objects.filter(user_id=user.user_id).first()
+        ref = UserRef.objects.filter(user_id=user.user_id).first()
+        if ref:
+            return ref
     if hasattr(user, 'id'):
-        return UserRef.objects.filter(user_id=user.id).first()
-    return UserRef.objects.filter(user_id=1).first()
+        ref = UserRef.objects.filter(user_id=user.id).first()
+        if ref:
+            return ref
+    return UserRef.objects.filter(user_id=1).first() or UserRef.objects.first()
 
 
 class LeaveTypeListView(APIView):
@@ -86,7 +90,8 @@ class LeaveBalanceListView(APIView):
         if not user_ref:
             user_ref = UserRef.objects.first()
 
-        current_year = timezone.now().year
+        year_param = request.query_params.get('year')
+        current_year = int(year_param) if (year_param and year_param.isdigit()) else timezone.now().year
         if user_ref:
             # Auto-provision initial balances if none exist for current year
             existing_count = LeaveBalance.objects.filter(user=user_ref, year=current_year).count()
@@ -146,8 +151,16 @@ class LeaveRequestListCreateView(APIView):
         serializer = LeaveRequestSerializer(data=data)
         if serializer.is_valid():
             try:
-                applicant = UserRef.objects.get(pk=data['applicant'])
-                leave_type = LeaveType.objects.get(pk=data['leave_type'])
+                try:
+                    applicant = UserRef.objects.get(pk=data['applicant'])
+                except UserRef.DoesNotExist:
+                    return Response({'error': f"Applicant with id {data['applicant']} not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+                try:
+                    leave_type = LeaveType.objects.get(pk=data['leave_type'])
+                except LeaveType.DoesNotExist:
+                    return Response({'error': f"Leave type with id {data['leave_type']} not found."}, status=status.HTTP_400_BAD_REQUEST)
+
                 substitute = UserRef.objects.filter(pk=data.get('substitute')).first() if data.get('substitute') else None
                 
                 leave_request = submit_leave_request(
@@ -185,7 +198,11 @@ class SubstituteResponseView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, pk):
-        leave_request = LeaveRequest.objects.get(pk=pk)
+        try:
+            leave_request = LeaveRequest.objects.get(pk=pk)
+        except LeaveRequest.DoesNotExist:
+            return Response({'error': 'Leave request not found'}, status=status.HTTP_404_NOT_FOUND)
+
         serializer = SubstituteResponseSerializer(data=request.data)
         if serializer.is_valid():
             try:
@@ -208,7 +225,11 @@ class RenominateSubstituteView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, pk):
-        leave_request = LeaveRequest.objects.get(pk=pk)
+        try:
+            leave_request = LeaveRequest.objects.get(pk=pk)
+        except LeaveRequest.DoesNotExist:
+            return Response({'error': 'Leave request not found'}, status=status.HTTP_404_NOT_FOUND)
+
         serializer = RenominateSubstituteSerializer(data=request.data)
         if serializer.is_valid():
             try:
@@ -228,11 +249,15 @@ class LeaveApprovalActionView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, pk):
-        leave_request = LeaveRequest.objects.get(pk=pk)
+        try:
+            leave_request = LeaveRequest.objects.get(pk=pk)
+        except LeaveRequest.DoesNotExist:
+            return Response({'error': 'Leave request not found'}, status=status.HTTP_404_NOT_FOUND)
+
         serializer = ApprovalActionSerializer(data=request.data)
         if serializer.is_valid():
             try:
-                user_ref = get_user_ref(request.user)
+                user_ref = get_user_ref(request.user) or UserRef.objects.first()
                 action = serializer.validated_data.get("action")
                 role_name = serializer.validated_data.get("role_name", "unit_head")
                 comments = serializer.validated_data.get("comments", "")
@@ -249,6 +274,10 @@ class LeaveWithdrawView(APIView):
     def post(self, request, pk):
         try:
             leave_request = LeaveRequest.objects.get(pk=pk)
+        except LeaveRequest.DoesNotExist:
+            return Response({'error': 'Leave request not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
             user_ref = get_user_ref(request.user)
             if not user_ref:
                 user_ref = leave_request.applicant
@@ -264,6 +293,10 @@ class LeaveCancelView(APIView):
     def post(self, request, pk):
         try:
             leave_request = LeaveRequest.objects.get(pk=pk)
+        except LeaveRequest.DoesNotExist:
+            return Response({'error': 'Leave request not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
             user_ref = get_user_ref(request.user)
             if not user_ref:
                 user_ref = leave_request.applicant
@@ -282,6 +315,10 @@ class LeaveExtendView(APIView):
     def post(self, request, pk):
         try:
             leave_request = LeaveRequest.objects.get(pk=pk)
+        except LeaveRequest.DoesNotExist:
+            return Response({'error': 'Leave request not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
             user_ref = get_user_ref(request.user)
             if not user_ref:
                 user_ref = leave_request.applicant
@@ -313,6 +350,10 @@ class DutyResumptionSubmitView(APIView):
     def post(self, request, pk):
         try:
             leave_request = LeaveRequest.objects.get(pk=pk)
+        except LeaveRequest.DoesNotExist:
+            return Response({'error': 'Leave request not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
             user_ref = get_user_ref(request.user)
             if not user_ref:
                 user_ref = leave_request.applicant
@@ -336,7 +377,11 @@ class DutyResumptionApproveView(APIView):
     def post(self, request, pk):
         try:
             resumption = DutyResumption.objects.get(pk=pk)
-            user_ref = get_user_ref(request.user)
+        except DutyResumption.DoesNotExist:
+            return Response({'error': 'Duty resumption not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            user_ref = get_user_ref(request.user) or UserRef.objects.first()
             serializer = ApproveDutyResumptionSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             role_name = serializer.validated_data.get('role_name', 'admin')

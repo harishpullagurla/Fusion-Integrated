@@ -8,6 +8,11 @@ from django.utils import timezone
 from modules.elm.models import LeaveType, LeaveBalance, LeaveRequest, LeaveActionLog, HolidayCalendar, DutyResumption
 from modules.directory.models import UserRef
 
+def _to_date(val):
+    if isinstance(val, str):
+        return date.fromisoformat(val.split('T')[0])
+    return val
+
 def calculate_leave_days(start_date, end_date, leave_type_code='EL', half_day=False):
     """
     BR-EL-011: Counting of Leave Days.
@@ -15,6 +20,9 @@ def calculate_leave_days(start_date, end_date, leave_type_code='EL', half_day=Fa
     - If leave_type_code == 'CL': Intervening Sundays and Gazetted Holidays do NOT count.
     - For EL, VL, COMMUTED, SPECIAL: Continuous calendar days count (Sundays and holidays count).
     """
+    start_date = _to_date(start_date)
+    end_date = _to_date(end_date)
+
     if half_day:
         return Decimal('0.5')
 
@@ -52,6 +60,8 @@ def check_leave_balance(user, leave_type, requested_days, year=None):
         return False, "Insufficient leave balance"
 
 def check_overlapping_leave(user, start_date, end_date, half_day=False, half_day_period=None, exclude_request_id=None):
+    start_date = _to_date(start_date)
+    end_date = _to_date(end_date)
     active_statuses = ['approved', 'pending_unit_head', 'pending_higher_sanction', 'awaiting_substitute']
     overlapping_requests = LeaveRequest.objects.filter(
         applicant=user,
@@ -78,6 +88,9 @@ def validate_leave_application(applicant, leave_type, start_date, end_date, half
     - BR-EL-003 / BR-EL-031: RH must be a single day and must exist as a declared Restricted Holiday.
     - BR-EL-014: Station leave requires non-empty destination/address.
     """
+    start_date = _to_date(start_date)
+    end_date = _to_date(end_date)
+
     if start_date > end_date:
         return False, "Start date must be before or equal to end date."
 
@@ -106,6 +119,9 @@ def submit_leave_request(applicant, leave_type, start_date, end_date, purpose,
     If substitute is nominated, status is 'awaiting_substitute'.
     Otherwise enters 'pending_unit_head'.
     """
+    start_date = _to_date(start_date)
+    end_date = _to_date(end_date)
+
     is_valid, error = validate_leave_application(
         applicant, leave_type, start_date, end_date,
         half_day=half_day, station_leave=station_leave,
@@ -220,6 +236,9 @@ def process_approval(leave_request, actor_user, role_name, action, comments=""):
     Handles sanctioning authority actions: 'recommend', 'approve', 'reject'.
     When 'approve' is invoked, debits the applicant's LeaveBalance.
     """
+    if leave_request.status not in ['pending_unit_head', 'pending_higher_sanction']:
+        raise ValidationError(f"Cannot process approval on request with status '{leave_request.status}'. Request must be pending sanction.")
+
     if action == 'recommend':
         leave_request.status = 'pending_higher_sanction'
     elif action == 'approve':
@@ -228,11 +247,15 @@ def process_approval(leave_request, actor_user, role_name, action, comments=""):
             leave_request.start_date, leave_request.end_date,
             leave_request.leave_type.code, leave_request.half_day
         )
-        balance_obj = LeaveBalance.objects.select_for_update().get(
-            user=leave_request.applicant,
-            leave_type=leave_request.leave_type,
-            year=leave_request.start_date.year
-        )
+        try:
+            balance_obj = LeaveBalance.objects.select_for_update().get(
+                user=leave_request.applicant,
+                leave_type=leave_request.leave_type,
+                year=leave_request.start_date.year
+            )
+        except LeaveBalance.DoesNotExist:
+            raise ValidationError(f"Leave balance record not found for {leave_request.applicant.username} in {leave_request.start_date.year}.")
+
         if balance_obj.balance < requested_days:
             raise ValidationError(f"Cannot approve: applicant balance {balance_obj.balance} < {requested_days}.")
         balance_obj.used_days += requested_days
@@ -294,14 +317,17 @@ def cancel_approved_leave(leave_request, applicant_user, comments=""):
         leave_request.start_date, leave_request.end_date,
         leave_request.leave_type.code, leave_request.half_day
     )
-    balance_obj = LeaveBalance.objects.select_for_update().get(
-        user=applicant_user,
-        leave_type=leave_request.leave_type,
-        year=leave_request.start_date.year
-    )
-    balance_obj.balance += days
-    balance_obj.used_days -= days
-    balance_obj.save()
+    try:
+        balance_obj = LeaveBalance.objects.select_for_update().get(
+            user=applicant_user,
+            leave_type=leave_request.leave_type,
+            year=leave_request.start_date.year
+        )
+        balance_obj.balance += days
+        balance_obj.used_days -= days
+        balance_obj.save()
+    except LeaveBalance.DoesNotExist:
+        pass
 
     leave_request.status = 'cancelled'
     leave_request.save()
@@ -320,6 +346,7 @@ def request_leave_extension(leave_request, applicant_user, new_end_date, comment
     """
     BR-EL-025 & EL-UC-009: Ongoing leave extension chaining.
     """
+    new_end_date = _to_date(new_end_date)
     if leave_request.applicant != applicant_user:
         raise ValidationError("Unauthorized: only the applicant can extend this leave.")
     if leave_request.status != 'approved':
@@ -333,11 +360,15 @@ def request_leave_extension(leave_request, applicant_user, new_end_date, comment
         leave_request.leave_type.code, half_day=False
     )
 
-    balance_obj = LeaveBalance.objects.get(
-        user=applicant_user,
-        leave_type=leave_request.leave_type,
-        year=leave_request.start_date.year
-    )
+    try:
+        balance_obj = LeaveBalance.objects.get(
+            user=applicant_user,
+            leave_type=leave_request.leave_type,
+            year=leave_request.start_date.year
+        )
+    except LeaveBalance.DoesNotExist:
+        raise ValidationError(f"Leave balance record not found for {applicant_user.username} in {leave_request.start_date.year}.")
+
     if balance_obj.balance < additional_days:
         raise ValidationError(f"Insufficient leave balance for extension: need {additional_days}, available {balance_obj.balance}.")
 
@@ -362,6 +393,7 @@ def submit_duty_resumption(leave_request, applicant_user, resumption_date, prefi
     Determines normal, early, or late resumption.
     Calculates actual days availed vs unconsumed days to refund.
     """
+    resumption_date = _to_date(resumption_date)
     if leave_request.applicant != applicant_user:
         raise ValidationError("Unauthorized: only the applicant can submit duty resumption.")
     if leave_request.status != 'approved':
