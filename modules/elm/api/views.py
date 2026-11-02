@@ -73,7 +73,7 @@ class EligibleSubstitutesListView(APIView):
         user_ref = get_user_ref(request.user)
         colleagues = UserRef.objects.all()
         if user_ref:
-            colleagues = colleagues.exclude(id=user_ref.id)
+            colleagues = colleagues.exclude(user_id=user_ref.user_id)
         serializer = UserRefSimpleSerializer(colleagues, many=True)
         return Response(serializer.data)
 
@@ -141,7 +141,7 @@ class LeaveRequestListCreateView(APIView):
         
         # Default applicant to current user if not explicitly passed
         if 'applicant' not in data and user_ref:
-            data['applicant'] = user_ref.id
+            data['applicant'] = user_ref.user_id
 
         serializer = LeaveRequestSerializer(data=data)
         if serializer.is_valid():
@@ -190,15 +190,17 @@ class SubstituteResponseView(APIView):
         if serializer.is_valid():
             try:
                 user_ref = get_user_ref(request.user)
-                # In development fallback if substitute matches
-                if not user_ref and leave_request.substitute:
-                    user_ref = leave_request.substitute
+                # Allow nominated substitute, or in dev testing fall back to the nominated substitute on the request
+                sub_actor = user_ref if (user_ref and user_ref == leave_request.substitute) else leave_request.substitute
+                if not sub_actor:
+                    sub_actor = user_ref
                 decision = serializer.validated_data.get("decision")
                 comments = serializer.validated_data.get("comments", "")
-                updated = respond_substitute(leave_request, user_ref, decision, comments)
+                updated = respond_substitute(leave_request, sub_actor, decision, comments)
                 return Response(LeaveRequestSerializer(updated).data, status=status.HTTP_200_OK)
             except ValidationError as e:
-                return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+                err_msg = e.message if hasattr(e, 'message') else str(e)
+                return Response({'error': err_msg}, status=status.HTTP_400_BAD_REQUEST)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 

@@ -77,7 +77,6 @@ export interface LeaveRequest {
 }
 
 export interface SubstituteOption {
-  id: number;
   user_id: number;
   username: string;
   display_name: string;

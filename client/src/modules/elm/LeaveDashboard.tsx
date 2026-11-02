@@ -244,16 +244,18 @@ export const LeaveDashboard: React.FC = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decision }),
       });
-      if (res.ok) {
-        notifications.show({
-          color: decision === "accept" ? "green" : "orange",
-          title: `Substitute Request ${decision === "accept" ? "Accepted" : "Declined"}`,
-          message: `Your response has been recorded.`,
-        });
-        fetchData();
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || `Failed to ${decision} substitute request.`);
       }
-    } catch (err) {
-      console.error(err);
+      notifications.show({
+        color: decision === "accept" ? "green" : "orange",
+        title: `Substitute Request ${decision === "accept" ? "Accepted" : "Declined"}`,
+        message: `Your response has been recorded.`,
+      });
+      fetchData();
+    } catch (err: any) {
+      notifications.show({ color: "red", title: "Substitute Response Error", message: err.message });
     }
   };
 
@@ -1056,7 +1058,7 @@ export const LeaveDashboard: React.FC = () => {
       <Modal
         opened={applyModalOpen}
         onClose={() => setApplyModalOpen(false)}
-        title={<Title order={3}>Apply for Institutional Leave</Title>}
+        title="Apply for Institutional Leave"
         size="lg"
         radius="md"
       >
@@ -1138,7 +1140,7 @@ export const LeaveDashboard: React.FC = () => {
               clearable
               searchable
               data={substitutesList.map((s) => ({
-                value: String(s.id),
+                value: String(s.user_id),
                 label: `${s.display_name} (${s.username} - ${s.discipline || s.kind})`,
               }))}
               value={applyForm.substitute}
@@ -1170,7 +1172,7 @@ export const LeaveDashboard: React.FC = () => {
       <Modal
         opened={historyModalOpen}
         onClose={() => setHistoryModalOpen(false)}
-        title={<Title order={4}>Workflow History & Audit Trail (#{selectedRequest?.id})</Title>}
+        title={`Workflow History & Audit Trail (#${selectedRequest?.id})`}
         size="md"
         radius="md"
       >
@@ -1207,7 +1209,7 @@ export const LeaveDashboard: React.FC = () => {
       <Modal
         opened={renominateModalOpen}
         onClose={() => setRenominateModalOpen(false)}
-        title={<Title order={4}>Re-Nominate Substitute Colleague</Title>}
+        title="Re-Nominate Substitute Colleague"
       >
         <Stack gap="md">
           <Text size="sm">
@@ -1218,7 +1220,7 @@ export const LeaveDashboard: React.FC = () => {
             placeholder="Choose colleague..."
             searchable
             data={substitutesList.map((s) => ({
-              value: String(s.id),
+              value: String(s.user_id),
               label: `${s.display_name} (${s.discipline || s.kind})`,
             }))}
             value={newSubId}
@@ -1235,7 +1237,7 @@ export const LeaveDashboard: React.FC = () => {
       <Modal
         opened={extendModalOpen}
         onClose={() => setExtendModalOpen(false)}
-        title={<Title order={4}>Extend Approved Leave</Title>}
+        title="Extend Approved Leave"
       >
         <Stack gap="md">
           <Text size="sm">
@@ -1259,7 +1261,7 @@ export const LeaveDashboard: React.FC = () => {
       <Modal
         opened={resumptionModalOpen}
         onClose={() => setResumptionModalOpen(false)}
-        title={<Title order={4}>Report Resumption of Duty</Title>}
+        title="Report Resumption of Duty"
       >
         <Stack gap="md">
           <Text size="sm">
@@ -1290,7 +1292,7 @@ export const LeaveDashboard: React.FC = () => {
       <Modal
         opened={approvalModalOpen}
         onClose={() => setApprovalModalOpen(false)}
-        title={<Title order={4}>Sanction Authority Decision (#{selectedRequest?.id})</Title>}
+        title={`Sanction Authority Decision (#${selectedRequest?.id})`}
       >
         <Stack gap="md">
           <Text size="sm">

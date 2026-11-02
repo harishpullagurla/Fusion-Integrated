@@ -5,7 +5,7 @@ from modules.directory.models import UserRef
 class UserRefSimpleSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserRef
-        fields = ['id', 'user_id', 'username', 'display_name', 'kind', 'discipline']
+        fields = ['user_id', 'username', 'display_name', 'kind', 'discipline']
 
 class LeaveTypeSerializer(serializers.ModelSerializer):
     class Meta:
